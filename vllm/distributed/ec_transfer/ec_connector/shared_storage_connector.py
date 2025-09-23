@@ -94,6 +94,15 @@ class ECSharedStorageConnector(ECConnectorBase):
                 logger.debug(
                     "Success load encoder cache for request_id %s, input_id %d",
                     mm_data.request_id, input_id)
+                foldername = self._generate_foldername_debug(
+                    f"{mm_data.request_id}_{input_id}", False)
+                try:
+                    os.remove(filename)
+                    os.rmdir(foldername)
+                except OSError as e:
+                    logger.warning(
+                        "Failed to remove cache file %s or directory %s: %s",
+                        filename, foldername, e)
 
     def save_caches(self, **kwargs) -> None:
         """Start saving the EC cache for each mm_datas from encoder cache
@@ -197,6 +206,9 @@ class ECSharedStorageConnector(ECConnectorBase):
     def _found_match_for_mm_data(self, mm_hash) -> bool:
         """Check if the cache is hit for the request.
         """
+        foldername = self._generate_foldername_debug(mm_hash, False)
+        if not os.path.isdir(foldername):
+            return False
         filename = self._generate_filename_debug(mm_hash)
         return os.path.exists(filename)
 
