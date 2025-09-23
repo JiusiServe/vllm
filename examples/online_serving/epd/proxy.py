@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import copy
 import logging
+import os
 import random
 import uuid
 from collections.abc import AsyncIterator
@@ -23,16 +24,18 @@ app = FastAPI()
 encode_session: Optional[aiohttp.ClientSession] = None
 decode_session: Optional[aiohttp.ClientSession] = None
 
+keepalive_timeout = int(os.getenv("CLIENT_HTTP_TIMEOUT_KEEP_ALIVE", 0))
+
 
 @app.on_event("startup")
 async def startup_event():
     global encode_session, decode_session
     encode_session = aiohttp.ClientSession(
-        connector=aiohttp.TCPConnector(limit=0),
+        connector=aiohttp.TCPConnector(limit=0, keepalive_timeout=keepalive_timeout),
         timeout=aiohttp.ClientTimeout(total=100000),
     )
     decode_session = aiohttp.ClientSession(
-        connector=aiohttp.TCPConnector(limit=0),
+        connector=aiohttp.TCPConnector(limit=0, keepalive_timeout=keepalive_timeout),
         timeout=aiohttp.ClientTimeout(total=100000),
     )
 
