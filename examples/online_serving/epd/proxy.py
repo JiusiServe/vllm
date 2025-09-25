@@ -6,10 +6,11 @@ import asyncio
 import copy
 import logging
 import os
-import random
 import uuid
 from collections.abc import AsyncIterator
-from typing import Optional
+from contextlib import asynccontextmanager
+from enum import Enum, auto
+from typing import List
 
 import aiohttp
 import uvicorn
@@ -21,32 +22,106 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-encode_session: Optional[aiohttp.ClientSession] = None
-decode_session: Optional[aiohttp.ClientSession] = None
-
 keepalive_timeout = int(os.getenv("CLIENT_HTTP_TIMEOUT_KEEP_ALIVE", 0))
 
 
-@app.on_event("startup")
-async def startup_event():
-    global encode_session, decode_session
-    encode_session = aiohttp.ClientSession(
-        connector=aiohttp.TCPConnector(limit=0, keepalive_timeout=keepalive_timeout),
-        timeout=aiohttp.ClientTimeout(total=100000),
-    )
-    decode_session = aiohttp.ClientSession(
-        connector=aiohttp.TCPConnector(limit=0, keepalive_timeout=keepalive_timeout),
-        timeout=aiohttp.ClientTimeout(total=100000),
-    )
+class ServerType(Enum):
+    E_INSTANCE = auto()
+    PD_INSTANCE = auto()
+
+
+class ServerState:
+    def __init__(self, url, server_type, id):
+        self.url = url
+        self.server_type = server_type
+        self.session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(
+                limit=0, keepalive_timeout=keepalive_timeout
+            ),
+            timeout=aiohttp.ClientTimeout(total=100000),
+        )
+
+        # work load relative
+        self.scores = 0
+
+    @asynccontextmanager
+    async def request_context(self, log_prefix: str):
+        self._record_request_load()
+        try:
+            yield
+        except Exception:
+            logger.error("Error in %s", log_prefix)
+            raise
+        finally:
+            self._release_request_load()
+
+    async def forward_non_streaming_request(
+        self,
+        request_data: dict,
+        headers: dict,
+    ) -> dict:
+        self._record_request_load()
+        request_data = copy.deepcopy(request_data)
+        if self.server_type == ServerType.E_INSTANCE:
+            request_data["max_tokens"] = 1
+            if "max_completion_tokens" in request_data:
+                request_data["max_completion_tokens"] = 1
+        async with self.request_context("non-stream"):
+            response = await self.session.post(
+                f"{self.url}/v1/chat/completions",
+                json=request_data,
+                headers=headers,
+            )
+            response.raise_for_status()
+            return await response.json()
+
+    async def forward_streaming_request(
+        self,
+        request_data: dict,
+        headers: dict,
+    ) -> AsyncIterator[str]:
+        async with self.request_context("stream"):
+            async with self.session.post(
+                f"{self.url}/v1/chat/completions", json=request_data, headers=headers
+            ) as response:
+                response.raise_for_status()
+                async for chunk in response.content.iter_chunked(128):
+                    if chunk:
+                        yield chunk.decode("utf-8", errors="ignore")
+
+    def _record_request_load(self):
+        self.scores += 1
+
+    def _release_request_load(self):
+        self.scores -= 1
+
+    def stop(self):
+        self.session.close()
+
+
+class ServerScheduler:
+    def __init__(self, instances, server_type):
+        self.instances: List[ServerState] = [
+            ServerState(url, server_type, i)
+            for i, url in enumerate(instances.split(","))
+        ]
+        self.server_type = server_type
+
+    def select_instance(self):
+        server = min(self.instances, key=lambda ins: ins.scores)
+        return server
+
+    def stop_instances(self):
+        for ins in self.instances:
+            ins.close()
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    global encode_session, decode_session
-    if encode_session:
-        await encode_session.close()
-    if decode_session:
-        await decode_session.close()
+    if app.state.e_scheduler:
+        await app.state.e_scheduler.close()
+    if app.state.pd_scheduler:
+        await app.state.pd_scheduler.close()
 
 
 def has_mm_input(request_data: dict):
@@ -64,112 +139,36 @@ def has_mm_input(request_data: dict):
 async def forward_streaming_request(
     request_data: dict,
     request_id: str,
-    e_server_url: str,
-    pd_server_url: str,
 ) -> AsyncIterator[str]:
     headers = {"x-request-id": request_id}
     # Skip request to encoder instance if we don't have mm input
     if has_mm_input(request_data):
-        encoder_request_data = copy.deepcopy(request_data)
-        encoder_request_data["max_tokens"] = 1
-        encoder_request_data["stream"] = False
-        encoder_request_data.pop("stream_options", None)
-        if "max_completion_tokens" in encoder_request_data:
-            encoder_request_data["max_completion_tokens"] = 1
-        task1 = asyncio.create_task(
-            encode_session.post(
-                f"{e_server_url}/v1/chat/completions",
-                json=encoder_request_data,
-                headers=headers,
-            )
-        )
-        try:
-            response = await task1
-            if response.status != 200:
-                error_text = await response.text()
-                raise HTTPException(
-                    status_code=response.status,
-                    detail={"error": "Request failed", "message": error_text},
-                )
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail={"error": "Internal server error", "message": str(e)},
-            ) from e
+        e_instance = app.state.e_scheduler.select_instance()
+        await e_instance.forward_non_streaming_request(request_data, headers)
 
-    # import time
-    # time.sleep(10)
-    try:
-        async with decode_session.post(
-            f"{pd_server_url}/v1/chat/completions", json=request_data, headers=headers
-        ) as response:
-            response.raise_for_status()
-            async for chunk in response.content.iter_chunked(128):
-                if chunk:
-                    yield chunk.decode("utf-8", errors="ignore")
-    except Exception as e:
-        logger.error("Error in streaming: %s", e)
-        raise
+    pd_instance = app.state.pd_scheduler.select_instance()
+    async for chunk in pd_instance.forward_streaming_request(request_data, headers):
+        yield chunk
 
 
 async def forward_non_streaming_request(
     request_data: dict,
     request_id: str,
-    e_server_url: str,
-    pd_server_url: str,
 ) -> dict:
     headers = {"x-request-id": request_id}
     # Skip request to encoder instance if we don't have mm input
     if has_mm_input(request_data):
-        encoder_request_data = copy.deepcopy(request_data)
-        encoder_request_data["max_tokens"] = 1
-        if "max_completion_tokens" in encoder_request_data:
-            encoder_request_data["max_completion_tokens"] = 1
-        # Start request to encode server
-        task1 = asyncio.create_task(
-            encode_session.post(
-                f"{e_server_url}/v1/chat/completions",
-                json=encoder_request_data,
-                headers=headers,
-            )
-        )
+        e_instance = app.state.e_scheduler.select_instance()
+        await e_instance.forward_non_streaming_request(request_data, headers)
 
-        try:
-            response = await task1
-            if response.status != 200:
-                error_text = await response.text()
-                raise HTTPException(
-                    status_code=response.status,
-                    detail={"error": "Request failed", "message": error_text},
-                )
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail={"error": "Internal server error", "message": str(e)},
-            ) from e
-
-    try:
-        # Make request to decode server
-        async with decode_session.post(
-            f"{pd_server_url}/v1/chat/completions", json=request_data, headers=headers
-        ) as response2:
-            response2.raise_for_status()
-            result = await response2.json()
-        return result
-    except Exception as e:
-        logger.error("Error in non-streaming: %s", e)
-        raise
+    pd_instance = app.state.pd_scheduler.select_instance()
+    return await pd_instance.forward_non_streaming_request(request_data, headers)
 
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     """Handle chat completion requests."""
     try:
-        e_instance = random.randint(0, len(app.state.e_urls) - 1)
-        pd_instance = random.randint(0, len(app.state.pd_urls) - 1)
-        e_server_url = app.state.e_urls[e_instance]
-        pd_server_url = app.state.pd_urls[pd_instance]
-
         request_data = await request.json()
         request_id = request.headers.get("x-request-id")
         if not request_id:
@@ -177,14 +176,13 @@ async def chat_completions(request: Request):
         is_streaming = request_data.get("stream", False)
         if is_streaming:
             return StreamingResponse(
-                forward_streaming_request(
-                    request_data, request_id, e_server_url, pd_server_url
-                ),
+                forward_streaming_request(request_data, request_id),
                 media_type="text/event-stream",
             )
         else:
             result = await forward_non_streaming_request(
-                request_data, request_id, e_server_url, pd_server_url
+                request_data,
+                request_id,
             )
             return JSONResponse(content=result)
     except Exception as e:
@@ -274,8 +272,8 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    app.state.e_urls = args.encode_servers_urls.split(",")
-    app.state.pd_urls = args.prefill_decode_servers_urls.split(",")
+    app.state.e_scheduler = ServerScheduler(args.encode_servers_urls)
+    app.state.pd_scheduler = ServerScheduler(args.prefill_decode_servers_urls)
 
     logger.info("Starting API proxy on %s:%s with 1 worker", args.host, args.port)
 
