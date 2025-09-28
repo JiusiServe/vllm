@@ -34,6 +34,7 @@ from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.request import Request, RequestStatus
 from vllm.v1.spec_decode.metrics import SpecDecodingStats
 from vllm.v1.structured_output import StructuredOutputManager
+from vllm.model_executor.utils import send_ttft_report
 
 logger = init_logger(__name__)
 
@@ -411,6 +412,7 @@ class Scheduler(SchedulerInterface):
                     num_computed_tokens = request.num_computed_tokens
 
                 encoder_inputs_to_schedule = None
+                external_load_encoder_input = None
                 new_encoder_budget = encoder_budget
 
                 # KVTransfer: loading remote KV, do not allocate for new work.
@@ -437,30 +439,41 @@ class Scheduler(SchedulerInterface):
                          ) = self._try_schedule_encoder_inputs(
                              request, num_computed_tokens, num_new_tokens,
                              encoder_budget)
-                        if request.request_id not in self._ttft_enc_queue_start:
+                        
+                        # If need schedule encoder inputs: enc_queue_start
+                        if request.request_id not in self._ttft_enc_queue_start and \
+                            encoder_inputs_to_schedule:
                             self._ttft_enc_queue_start[request.request_id] = time.perf_counter()
-                        if num_new_tokens == 0:
+
+                        # If need schedule encoder inputs and already start: enc_queue_end
+                        if request.request_id in self._ttft_enc_queue_start and \
+                            request.request_id not in self._ttft_enc_queue_report and \
+                                encoder_inputs_to_schedule:
+                            t_start_queue = self._ttft_enc_queue_start[request.request_id]
+                            enc_queue_ms = (time.perf_counter() - t_start_queue) * 1000
+                            payload = {
+                                "role": "encoder",
+                                "request_id": request.request_id,
+                                "enc_queue_time_ms": enc_queue_ms,
+                            }
+                            try:
+                                send_ttft_report(payload)
+                            except Exception as e:
+                                pass
+                            self._ttft_enc_queue_report.add(request.request_id)
+                        
+                        # If no need schedule encoder inputs: prefill_queue_start
+                        no_more_encoder_work = not encoder_inputs_to_schedule and not external_load_encoder_input
+                        if no_more_encoder_work and request.request_id not in self._ttft_prefill_queue_start:
                             self._ttft_prefill_queue_start[request.request_id] = time.perf_counter()
+
+                        if num_new_tokens == 0:
                             # The request cannot be scheduled.
                             break
-                        
-                        if request.request_id in self._ttft_enc_queue_start:
-                            if request.request_id not in self._ttft_enc_queue_report and encoder_inputs_to_schedule:
-                                t_start_queue = self._ttft_enc_queue_start[request.request_id]
-                                enc_queue_ms = (time.perf_counter() - t_start_queue) * 1000
-                                payload = {
-                                    "role": "encoder",
-                                    "request_id": request.request_id,
-                                    "encoder_queue_time_ms": enc_queue_ms,
-                                }
-                                try:
-                                    send_ttft_report(payload)
-                                except Exception as e:
-                                    pass
-                                self._ttft_enc_queue_report.add(request.request_id)
                     else:
                         if request.request_id not in self._ttft_prefill_queue_start:
                             self._ttft_prefill_queue_start[request.request_id] = time.perf_counter()
+                    # allocate num_new_tokens for this request for the first time
                     if request.request_id in self._ttft_prefill_queue_start:
                         if request.request_id not in self._ttft_prefill_queue_report and num_new_tokens > 0:
                             t_start_queue = self._ttft_prefill_queue_start[request.request_id]
