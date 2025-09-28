@@ -168,6 +168,12 @@ class Scheduler(SchedulerInterface):
             enable_kv_cache_events=self.enable_kv_cache_events,
         )
 
+        # TTFT
+        self._ttft_enc_queue_start: dict[str, float] = {}
+        self._ttft_enc_queue_report: set[str] = set()
+        self._ttft_prefill_queue_start: dict[str, float] = {}
+        self._ttft_prefill_queue_report: set[str] = set()
+
     def schedule(self) -> SchedulerOutput:
         # NOTE(woosuk) on the scheduling algorithm:
         # There's no "decoding phase" nor "prefill phase" in the scheduler.
@@ -431,9 +437,44 @@ class Scheduler(SchedulerInterface):
                          ) = self._try_schedule_encoder_inputs(
                              request, num_computed_tokens, num_new_tokens,
                              encoder_budget)
+                        if request.request_id not in self._ttft_enc_queue_start:
+                            self._ttft_enc_queue_start[request.request_id] = time.perf_counter()
                         if num_new_tokens == 0:
+                            self._ttft_prefill_queue_start[request.request_id] = time.perf_counter()
                             # The request cannot be scheduled.
                             break
+                        
+                        if request.request_id in self._ttft_enc_queue_start:
+                            if request.request_id not in self._ttft_enc_queue_report and encoder_inputs_to_schedule:
+                                t_start_queue = self._ttft_enc_queue_start[request.request_id]
+                                enc_queue_ms = (time.perf_counter() - t_start_queue) * 1000
+                                payload = {
+                                    "role": "encoder",
+                                    "request_id": request.request_id,
+                                    "encoder_queue_time_ms": enc_queue_ms,
+                                }
+                                try:
+                                    send_ttft_report(payload)
+                                except Exception as e:
+                                    pass
+                                self._ttft_enc_queue_report.add(request.request_id)
+                    else:
+                        if request.request_id not in self._ttft_prefill_queue_start:
+                            self._ttft_prefill_queue_start[request.request_id] = time.perf_counter()
+                    if request.request_id in self._ttft_prefill_queue_start:
+                        if request.request_id not in self._ttft_prefill_queue_report and num_new_tokens > 0:
+                            t_start_queue = self._ttft_prefill_queue_start[request.request_id]
+                            prefill_queue_ms = (time.perf_counter() - t_start_queue) * 1000
+                            payload = {
+                                "role": "pd",
+                                "request_id": request.request_id,
+                                "prefill_queue_time_ms": prefill_queue_ms,
+                            }
+                            try:
+                                send_ttft_report(payload)
+                            except Exception as e:
+                                pass
+                            self._ttft_prefill_queue_report.add(request.request_id)
 
                 new_blocks = self.kv_cache_manager.allocate_slots(
                     request,

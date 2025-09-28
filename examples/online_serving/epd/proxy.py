@@ -4,8 +4,10 @@
 import argparse
 import asyncio
 import copy
+from dataclasses import dataclass, field
 import logging
 import random
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Optional
@@ -162,6 +164,16 @@ async def forward_non_streaming_request(
 async def chat_completions(request: Request):
     """Handle chat completion requests."""
     try:
+        ingress_wall_ns = time.time_ns()
+        request_id = request.headers.get("x-request-id")
+        try:
+            meta_entry = app.state.ttft_store.get(request_id)
+            if meta_entry is None:
+                meta_entry = TTFTStoreEntry()
+                app.state.ttft_store[request_id] = meta_entry
+                meta_entry.merge("meta", {"t_request_ingress_ns": ingress_wall_ns})
+        except Exception:
+            pass  # ignore if not found
         e_instance = random.randint(0, len(app.state.e_urls) - 1)
         pd_instance = random.randint(0, len(app.state.pd_urls) - 1)
         e_server_url = app.state.e_urls[e_instance]
@@ -246,6 +258,129 @@ async def health_check():
             content={"proxy": "unhealthy", "error": str(e)}, status_code=503
         )
 
+@dataclass
+class TTFTPartial:
+    # 5 分项，允许缺省
+    enc_queue_time_ms: Optional[float] = None
+    enc_compute_time_ms: Optional[float] = None
+    emb_cache_transfer_time_ms: Optional[float] = None
+    prefill_queue_time_ms: Optional[float] = None
+    prefill_compute_time_ms: Optional[float] = None
+
+    t_request_ingress_ns: Optional[int] = None     # 入口时间(绝对纳秒)
+    enc_ingress_wait_ms: Optional[float] = None    # ingress→enc_start
+
+    def merge(self, payload: dict):
+        mapping = (
+            "enc_queue_time_ms",
+            "enc_compute_time_ms",
+            "emb_cache_transfer_time_ms",
+            "prefill_queue_time_ms",
+            "prefill_compute_time_ms",
+            "t_request_ingress_ns",
+            "enc_ingress_wait_ms",
+        )
+        for k in mapping:
+            if k in payload and payload[k] is not None:
+                # t_request_ingress_ns 可能是字符串
+                if k == "t_request_ingress_ns":
+                    try:
+                        setattr(self, k, int(payload[k]))
+                    except Exception:
+                        pass
+                else:
+                    setattr(self, k, float(payload[k]))
+    # 判断指标是否都收集齐了
+    def is_complete(self) -> bool:
+        return all(getattr(self, k) is not None for k in (
+            "enc_queue_time_ms","enc_compute_time_ms",
+            "emb_cache_transfer_time_ms","prefill_queue_time_ms",
+            "prefill_compute_time_ms"))
+
+    def as_dict(self):
+        d = {
+            "enc_queue_time_ms": self.enc_queue_time_ms,
+            "enc_compute_time_ms": self.enc_compute_time_ms,
+            "emb_cache_transfer_time_ms": self.emb_cache_transfer_time_ms,
+            "prefill_queue_time_ms": self.prefill_queue_time_ms,
+            "prefill_compute_time_ms": self.prefill_compute_time_ms,
+            "enc_ingress_wait_ms": self.enc_ingress_wait_ms,
+            "t_request_ingress_ns": self.t_request_ingress_ns,
+        }
+        if self.is_complete():
+            d["ttft_ms"] = sum(
+                v for k, v in d.items() 
+                if k.endswith("_time_ms") and v is not None)  # 5 项之和
+        return d
+
+@dataclass
+class TTFTStoreEntry:
+    encoder: TTFTPartial = field(default_factory=TTFTPartial)
+    pd: TTFTPartial = field(default_factory=TTFTPartial)
+    ts_last_update: float = field(default_factory=lambda: time.time())
+
+    def merge(self, role: str, payload: dict):
+        self.ts_last_update = time.time()
+        if role == "encoder":
+            self.encoder.merge(payload)
+        elif role == "pd":
+            self.pd.merge(payload)
+        elif role == "meta":
+            self.meta.merge(payload)
+
+    def combined(self):
+        # 合并两个 partial；后者覆盖前者的同名字段
+        merged = TTFTPartial()
+        merged.merge(self.meta.as_dict())
+        merged.merge(self.encoder.as_dict())
+        merged.merge(self.pd.as_dict())
+        return merged
+
+# 在 startup() 之后初始化存储
+if not hasattr(app.state, "ttft_store"):
+    app.state.ttft_store: dict[str, TTFTStoreEntry] = {}
+
+@app.post("/ttft_report")
+async def ttft_report(request: Request):
+    body = await request.json()
+    role = body.get("role")  # "encoder" | "pd"
+    request_id = body.get("request_id")
+    if role not in ("encoder", "pd") or not request_id:
+        raise HTTPException(status_code=400, detail="role or request_id missing")
+
+    entry = app.state.ttft_store.get(request_id)
+    if entry is None:
+        entry = TTFTStoreEntry()
+        app.state.ttft_store[request_id] = entry
+
+    entry.merge(role, body)
+
+    combined = entry.combined()
+    result = {
+        "request_id": request_id,
+        "by_role": {
+            "meta": entry.meta.as_dict(),
+            "encoder": entry.encoder.as_dict(),
+            "pd": entry.pd.as_dict(),
+        },
+        "combined": combined.as_dict(),
+    }
+    logger.info("TTFT report update for %s: %s", request_id, result)
+    return JSONResponse(content=result)
+
+@app.get("/ttft_report/{request_id}")
+async def ttft_get(request_id: str):
+    entry = app.state.ttft_store.get(request_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="not found")
+    return {
+        "request_id": request_id,
+        "by_role": {
+            "encoder": entry.encoder.as_dict(),
+            "pd": entry.pd.as_dict(),
+        },
+        "combined": entry.combined().as_dict(),
+    }
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

@@ -1,11 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """Utils for model executor."""
+from __future__ import annotations
 import copy
 from typing import Any, Optional
-
 import torch
+import json
+import os
+import urllib.request
+import urllib.error
 
+_DEFAULT_URL = "http://127.0.0.1:5580/ttft_report"
+_URL = os.getenv("VLLM_TTFT_REPORT_URL", _DEFAULT_URL)
 
 def set_random_seed(seed: int) -> None:
     from vllm.platforms import current_platform
@@ -75,3 +81,18 @@ def get_packed_modules_mapping(model: torch.nn.Module) -> dict[str, list[str]]:
         else:
             parent_map.update(child_map)
     return parent_map
+
+def send_ttft_report(payload: dict) -> None:
+    """
+    Best-effort HTTP POST reporter. Non-blocking and silent on failure.
+    """
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        _URL, data=data, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=0.3) as resp:  # small timeout
+            resp.read(0)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
+        # best effort: ignore any failure
+        pass
