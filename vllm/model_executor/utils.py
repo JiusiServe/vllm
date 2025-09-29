@@ -89,7 +89,7 @@ def _parse(u: str):
     assert u.startswith("http://")
     rest = u[7:]
     if "/" in rest:
-        hostport, path = rest.split("/", 1)
+        host_port, path = rest.split("/", 1)
         path = "/" + path
     else:
         host_port, path = rest, "/"
