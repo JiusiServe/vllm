@@ -3,6 +3,9 @@
 """Utils for model executor."""
 from __future__ import annotations
 import copy
+import socket
+import sys
+import time
 from typing import Any, Optional
 import torch
 import json
@@ -82,17 +85,80 @@ def get_packed_modules_mapping(model: torch.nn.Module) -> dict[str, list[str]]:
             parent_map.update(child_map)
     return parent_map
 
+def _parse(u: str):
+    assert u.startswith("http://")
+    rest = u[7:]
+    if "/" in rest:
+        hostport, p = rest.split("/", 1)
+        p = "/" + p
+    else:
+        hostport, p = rest, "/"
+    if ":" in hostport:
+        h, pt = hostport.split(":", 1)
+        try:
+            pt = int(pt)
+        except:
+            raise ValueError(f"bad port in URL {u}")
+    else:
+        h, pt = hostport, 80
+    return h, pt, p
+
+try:
+    HOST, PORT, PATH = _parse(_URL)
+except Exception as e:
+    print(f"[TTFT][PARSE_ERR] {_URL} {e}", file=sys.stderr, flush=True)
+    HOST = PORT = PATH = None
+
+
 def send_ttft_report(payload: dict) -> None:
-    """
-    Best-effort HTTP POST reporter. Non-blocking and silent on failure.
-    """
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        _URL, data=data, headers={"Content-Type": "application/json"}, method="POST"
-    )
+    # 调用入口
+    print(f"[TTFT][REPORTER_CALL] host={HOST} port={PORT} path={PATH} payload={payload}", flush=True)
+
+    if HOST is None:
+        return
+    if not payload or "request_id" not in payload:
+        return
+
+    # 序列化
     try:
-        with urllib.request.urlopen(req, timeout=0.3) as resp:  # small timeout
-            resp.read(0)
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
-        # best effort: ignore any failure
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    except Exception as e:
+        print(f"[TTFT][SERIALIZE_FAIL] {e} payload={payload}", file=sys.stderr, flush=True)
+        return
+
+    # 连接
+    t0 = time.perf_counter()
+    try:
+        sock = socket.create_connection((HOST, PORT), timeout=0.2)
+    except Exception as e:
+        print(f"[TTFT][CONN_FAIL] {type(e).__name__}:{e} payload={payload}", file=sys.stderr, flush=True)
+        return
+    t_conn = (time.perf_counter() - t0) * 1000
+
+    # 发送
+    try:
+        req = (
+            f"POST {PATH} HTTP/1.1\r\n"
+            f"Host: {HOST}:{PORT}\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+        ).encode("utf-8") + body
+
+        sock.sendall(req)
+    except Exception as e:
+        print(f"[TTFT][SEND_FAIL] {type(e).__name__}:{e} payload={payload}", file=sys.stderr, flush=True)
+        try:
+            sock.close()
+        except:
+            pass
+        return
+
+    # 直接关闭（不读响应）
+    try:
+        sock.close()
+    except:
         pass
+
+    print(f"[TTFT][SENT] conn_ms={t_conn:.2f} size={len(body)}B rid={payload.get('request_id')}", flush=True)

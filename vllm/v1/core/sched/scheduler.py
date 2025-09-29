@@ -452,9 +452,12 @@ class Scheduler(SchedulerInterface):
                                 encoder_inputs_to_schedule:
                             t_start_queue = self._ttft_enc_queue_start[request.request_id]
                             enc_queue_ms = (time.perf_counter() - t_start_queue) * 1000
+                            rid = request.request_id
+                            if rid.startswith("chatcmpl-"):
+                                rid = rid[len("chatcmpl-"):]
                             payload = {
                                 "role": "encoder",
-                                "request_id": request.request_id,
+                                "request_id": rid,
                                 "enc_queue_time_ms": enc_queue_ms,
                             }
                             try:
@@ -479,9 +482,12 @@ class Scheduler(SchedulerInterface):
                         if request.request_id not in self._ttft_prefill_queue_report and num_new_tokens > 0:
                             t_start_queue = self._ttft_prefill_queue_start[request.request_id]
                             prefill_queue_ms = (time.perf_counter() - t_start_queue) * 1000
+                            rid = request.request_id
+                            if rid.startswith("chatcmpl-"):
+                                rid = rid[len("chatcmpl-"):]
                             payload = {
                                 "role": "pd",
-                                "request_id": request.request_id,
+                                "request_id": rid,
                                 "prefill_queue_time_ms": prefill_queue_ms,
                             }
                             try:
@@ -492,9 +498,12 @@ class Scheduler(SchedulerInterface):
                     elif num_new_tokens > 0 and request.request_id not in self._ttft_prefill_queue_report:
                         # If need to process encoder and prefill at the same time
                         # prefill_queue_time_ms = 0
+                        rid = request.request_id
+                        if rid.startswith("chatcmpl-"):
+                            rid = rid[len("chatcmpl-"):]
                         payload = {
                             "role": "pd",
-                            "request_id": request.request_id,
+                            "request_id": rid,
                             "prefill_queue_time_ms": 0.0,
                         }
                         try:

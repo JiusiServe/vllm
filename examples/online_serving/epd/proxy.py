@@ -165,19 +165,20 @@ async def chat_completions(request: Request):
     """Handle chat completion requests."""
     try:
         ingress_wall_ns = time.time_ns()
-        raw_id = request.headers.get("x-request-id")
-        request_id = raw_id if raw_id else str(uuid.uuid4())
-        try:
-            meta_entry = app.state.ttft_store.get(request_id, None)
-            if meta_entry is None:
-                meta_entry = TTFTStoreEntry()
-                app.state.ttft_store[request_id] = meta_entry
-                entry.merge("meta", {
-                    "request_id": request_id,
-                    "t_request_ingress_ns": ingress_wall_ns
-                })
-        except Exception:
-            pass  # ignore if not found
+        request_id = request.headers.get("x-request-id")
+        rid = request_id
+        if rid.startswith("chatcmpl-"):
+            rid = rid[len("chatcmpl-"):]
+        # record ingress time for ttft
+        meta_entry = app.state.ttft_store.get(rid)
+        if meta_entry is None:
+            meta_entry = TTFTStoreEntry()
+            app.state.ttft_store[rid] = meta_entry
+        meta_entry.merge("meta", {
+            "request_id": rid,
+            "t_request_ingress_ns": ingress_wall_ns
+        })
+
         e_instance = random.randint(0, len(app.state.e_urls) - 1)
         pd_instance = random.randint(0, len(app.state.pd_urls) - 1)
         e_server_url = app.state.e_urls[e_instance]
@@ -308,8 +309,8 @@ class TTFTPartial:
             "emb_cache_transfer_time_ms": self.emb_cache_transfer_time_ms,
             "prefill_queue_time_ms": self.prefill_queue_time_ms,
             "prefill_compute_time_ms": self.prefill_compute_time_ms,
-            "enc_ingress_wait_ms": self.enc_ingress_wait_ms,
             "t_request_ingress_ns": self.t_request_ingress_ns,
+            "enc_ingress_wait_ms": self.enc_ingress_wait_ms,
         }
         if self.is_complete():
             d["ttft_ms"] = sum(
@@ -345,32 +346,41 @@ class TTFTStoreEntry:
 if not hasattr(app.state, "ttft_store"):
     app.state.ttft_store: dict[str, TTFTStoreEntry] = {}
 
+def _canonical_rid(rid: str) -> str:
+    if rid and rid.startswith("chatcmpl-"):
+        return rid[len("chatcmpl-"):]
+    return rid
+
+def is_complete(result: dict) -> bool:
+    combined = result.get("combined", {})
+    return all(combined.get(k) is not None for k in (
+        "enc_queue_time_ms","enc_compute_time_ms",
+        "emb_cache_transfer_time_ms","prefill_queue_time_ms",
+        "prefill_compute_time_ms"))
+
 @app.post("/ttft_report")
 async def ttft_report(request: Request):
     body = await request.json()
     role = body.get("role")  # "encoder" | "pd" | "meta"
-    request_id = body.get("request_id")
-    if role not in ("encoder", "pd", "meta") or not request_id:
+    rid = body.get("request_id")
+    if role not in ("meta", "encoder", "pd") or not rid:
         raise HTTPException(status_code=400, detail="role or request_id missing")
-
-    entry = app.state.ttft_store.get(request_id)
+    cano = _canonical_rid(rid)
+    store = app.state.ttft_store
+    entry = store.get(cano)
     if entry is None:
         entry = TTFTStoreEntry()
-        app.state.ttft_store[request_id] = entry
+        store[cano] = entry
 
     entry.merge(role, body)
 
-    combined = entry.combined()
+    combined = entry.combined().as_dict()
     result = {
-        "request_id": request_id,
-        "by_role": {
-            "meta": entry.meta.as_dict(),
-            "encoder": entry.encoder.as_dict(),
-            "pd": entry.pd.as_dict(),
-        },
-        "combined": combined.as_dict(),
+        "request_id": cano,
+        "combined": combined,
     }
-    logger.info("TTFT report update for %s: %s", request_id, result)
+    if is_complete(result):
+        logger.info("TTFT report update for %s: %s", cano, result)
     return JSONResponse(content=result)
 
 @app.get("/ttft_report/{request_id}")
