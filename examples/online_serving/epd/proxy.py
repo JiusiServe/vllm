@@ -165,7 +165,8 @@ async def chat_completions(request: Request):
     """Handle chat completion requests."""
     try:
         ingress_wall_ns = time.time_ns()
-        request_id = request.headers.get("x-request-id")
+        raw_id = request.headers.get("x-request-id")
+        request_id = raw_id if raw_id else str(uuid.uuid4())
         rid = request_id
         if rid.startswith("chatcmpl-"):
             rid = rid[len("chatcmpl-"):]
@@ -377,11 +378,11 @@ async def ttft_report(request: Request):
     combined = entry.combined().as_dict()
     result = {
         "request_id": cano,
-        "combined": combined,
+        "combined": combined
     }
     if is_complete(result):
-        logger.info("TTFT report update for %s: %s", cano, result)
-    return JSONResponse(content=result)
+        logger.info("[TTFT] report update for %s: %s", cano, result)
+    return JSONResponse(result)
 
 @app.get("/ttft_report/{request_id}")
 async def ttft_get(request_id: str):

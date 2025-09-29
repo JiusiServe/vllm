@@ -89,26 +89,18 @@ def _parse(u: str):
     assert u.startswith("http://")
     rest = u[7:]
     if "/" in rest:
-        hostport, p = rest.split("/", 1)
-        p = "/" + p
+        hostport, path = rest.split("/", 1)
+        path = "/" + path
     else:
-        hostport, p = rest, "/"
-    if ":" in hostport:
-        h, pt = hostport.split(":", 1)
-        try:
-            pt = int(pt)
-        except:
-            raise ValueError(f"bad port in URL {u}")
+        host_port, path = rest, "/"
+    if ":" in host_port:
+        host, port = host_port.split(":", 1)
+        port = int(port)
     else:
-        h, pt = hostport, 80
-    return h, pt, p
+        host, port = host_port, 80
+    return host, port, path
 
-try:
-    HOST, PORT, PATH = _parse(_URL)
-except Exception as e:
-    print(f"[TTFT][PARSE_ERR] {_URL} {e}", file=sys.stderr, flush=True)
-    HOST = PORT = PATH = None
-
+HOST, PORT, PATH = _parse(_URL)
 
 def send_ttft_report(payload: dict) -> None:
     # 调用入口
