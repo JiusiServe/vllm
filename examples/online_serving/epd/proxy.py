@@ -4,13 +4,14 @@
 import argparse
 import asyncio
 import copy
-import os
-from dataclasses import dataclass, field
 import logging
+import os
 import random
 import time
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import suppress
+from dataclasses import dataclass, field
 from typing import Optional
 
 import aiohttp
@@ -171,16 +172,15 @@ async def chat_completions(request: Request):
             request_id = raw_id if raw_id else str(uuid.uuid4())
             rid = request_id
             if rid.startswith("chatcmpl-"):
-                rid = rid[len("chatcmpl-"):]
+                rid = rid[len("chatcmpl-") :]
             # record ingress time for ttft
             meta_entry = app.state.ttft_store.get(rid)
             if meta_entry is None:
                 meta_entry = TTFTStoreEntry()
                 app.state.ttft_store[rid] = meta_entry
-            meta_entry.merge("meta", {
-                "request_id": rid,
-                "t_request_ingress_ns": ingress_wall_ns
-            })
+            meta_entry.merge(
+                "meta", {"request_id": rid, "t_request_ingress_ns": ingress_wall_ns}
+            )
 
         e_instance = random.randint(0, len(app.state.e_urls) - 1)
         pd_instance = random.randint(0, len(app.state.pd_urls) - 1)
@@ -266,6 +266,7 @@ async def health_check():
             content={"proxy": "unhealthy", "error": str(e)}, status_code=503
         )
 
+
 @dataclass
 class TTFTPartial:
     enc_queue_time_ms: Optional[float] = None
@@ -274,8 +275,8 @@ class TTFTPartial:
     prefill_queue_time_ms: Optional[float] = None
     prefill_compute_time_ms: Optional[float] = None
 
-    t_request_ingress_ns: Optional[int] = None     # request entry time (absolute ns)
-    enc_ingress_wait_ms: Optional[float] = None    # ingress→enc_start
+    t_request_ingress_ns: Optional[int] = None  # request entry time (absolute ns)
+    enc_ingress_wait_ms: Optional[float] = None  # ingress→enc_start
 
     def merge(self, payload: dict):
         mapping = (
@@ -291,18 +292,23 @@ class TTFTPartial:
             if k in payload and payload[k] is not None:
                 # t_request_ingress_ns 可能是字符串
                 if k == "t_request_ingress_ns":
-                    try:
+                    with suppress(Exception):
                         setattr(self, k, int(payload[k]))
-                    except Exception:
-                        pass
                 else:
                     setattr(self, k, float(payload[k]))
+
     # judgement for collecting all the data
     def is_complete(self) -> bool:
-        return all(getattr(self, k) is not None for k in (
-            "enc_queue_time_ms","enc_compute_time_ms",
-            "emb_cache_transfer_time_ms","prefill_queue_time_ms",
-            "prefill_compute_time_ms"))
+        return all(
+            getattr(self, k) is not None
+            for k in (
+                "enc_queue_time_ms",
+                "enc_compute_time_ms",
+                "emb_cache_transfer_time_ms",
+                "prefill_queue_time_ms",
+                "prefill_compute_time_ms",
+            )
+        )
 
     def as_dict(self):
         d = {
@@ -316,9 +322,10 @@ class TTFTPartial:
         }
         if self.is_complete():
             d["ttft_ms"] = sum(
-                v for k, v in d.items() 
-                if k.endswith("_time_ms") and v is not None)
+                v for k, v in d.items() if k.endswith("_time_ms") and v is not None
+            )
         return d
+
 
 @dataclass
 class TTFTStoreEntry:
@@ -344,21 +351,31 @@ class TTFTStoreEntry:
         merged.merge(self.pd.as_dict())
         return merged
 
+
 # init
 if not hasattr(app.state, "ttft_store"):
     app.state.ttft_store: dict[str, TTFTStoreEntry] = {}
 
+
 def _canonical_rid(rid: str) -> str:
     if rid and rid.startswith("chatcmpl-"):
-        return rid[len("chatcmpl-"):]
+        return rid[len("chatcmpl-") :]
     return rid
+
 
 def is_complete(result: dict) -> bool:
     combined = result.get("combined", {})
-    return all(combined.get(k) is not None for k in (
-        "enc_queue_time_ms","enc_compute_time_ms",
-        "emb_cache_transfer_time_ms","prefill_queue_time_ms",
-        "prefill_compute_time_ms"))
+    return all(
+        combined.get(k) is not None
+        for k in (
+            "enc_queue_time_ms",
+            "enc_compute_time_ms",
+            "emb_cache_transfer_time_ms",
+            "prefill_queue_time_ms",
+            "prefill_compute_time_ms",
+        )
+    )
+
 
 @app.post("/ttft_report")
 async def ttft_report(request: Request):
@@ -377,13 +394,11 @@ async def ttft_report(request: Request):
     entry.merge(role, body)
 
     combined = entry.combined().as_dict()
-    result = {
-        "request_id": cano,
-        "combined": combined
-    }
+    result = {"request_id": cano, "combined": combined}
     if is_complete(result):
         logger.info("[TTFT] report update for %s: %s", cano, result)
     return JSONResponse(result)
+
 
 @app.get("/ttft_report/{request_id}")
 async def ttft_get(request_id: str):
@@ -399,6 +414,7 @@ async def ttft_get(request_id: str):
         },
         "combined": entry.combined().as_dict(),
     }
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
