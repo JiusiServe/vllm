@@ -4,6 +4,7 @@
 import argparse
 import asyncio
 import copy
+import os
 from dataclasses import dataclass, field
 import logging
 import random
@@ -21,7 +22,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
+TTFT_ENABLED = os.environ.get("TTFT_ENABLED", "0")
 encode_session: Optional[aiohttp.ClientSession] = None
 decode_session: Optional[aiohttp.ClientSession] = None
 
@@ -164,21 +165,22 @@ async def forward_non_streaming_request(
 async def chat_completions(request: Request):
     """Handle chat completion requests."""
     try:
-        ingress_wall_ns = time.time_ns()
-        raw_id = request.headers.get("x-request-id")
-        request_id = raw_id if raw_id else str(uuid.uuid4())
-        rid = request_id
-        if rid.startswith("chatcmpl-"):
-            rid = rid[len("chatcmpl-"):]
-        # record ingress time for ttft
-        meta_entry = app.state.ttft_store.get(rid)
-        if meta_entry is None:
-            meta_entry = TTFTStoreEntry()
-            app.state.ttft_store[rid] = meta_entry
-        meta_entry.merge("meta", {
-            "request_id": rid,
-            "t_request_ingress_ns": ingress_wall_ns
-        })
+        if TTFT_ENABLED:
+            ingress_wall_ns = time.time_ns()
+            raw_id = request.headers.get("x-request-id")
+            request_id = raw_id if raw_id else str(uuid.uuid4())
+            rid = request_id
+            if rid.startswith("chatcmpl-"):
+                rid = rid[len("chatcmpl-"):]
+            # record ingress time for ttft
+            meta_entry = app.state.ttft_store.get(rid)
+            if meta_entry is None:
+                meta_entry = TTFTStoreEntry()
+                app.state.ttft_store[rid] = meta_entry
+            meta_entry.merge("meta", {
+                "request_id": rid,
+                "t_request_ingress_ns": ingress_wall_ns
+            })
 
         e_instance = random.randint(0, len(app.state.e_urls) - 1)
         pd_instance = random.randint(0, len(app.state.pd_urls) - 1)
