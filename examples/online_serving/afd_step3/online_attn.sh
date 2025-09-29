@@ -1,0 +1,1 @@
+vllm serve "/home/models/DeepSeek-V2-Lite"  --tensor_parallel_size=2 --enable_expert_parallel --enforce_eager  --afd-config '{"afd_connector":"p2pconnector", "afd_role": "attention", "afd_host":"127.0.0.1", "afd_port":"29500","num_afd_stages":"1","afd_extra_config":{"afd_size":"2A2F"}}'

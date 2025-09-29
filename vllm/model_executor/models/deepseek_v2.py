@@ -35,11 +35,14 @@ from transformers import DeepseekV2Config, DeepseekV3Config
 import vllm.envs as envs
 from vllm.attention import Attention
 from vllm.compilation.decorators import support_torch_compile
-from vllm.config import CacheConfig, ParallelConfig, VllmConfig
+from vllm.config import (CacheConfig, ParallelConfig, VllmConfig,
+                         get_current_vllm_config)
 from vllm.distributed import (get_ep_group, get_pp_group,
                               get_tensor_model_parallel_rank,
                               get_tensor_model_parallel_world_size,
                               tensor_model_parallel_all_gather)
+from vllm.forward_context import get_forward_context
+from vllm.logger import init_logger
 from vllm.model_executor.layers.activation import SiluAndMul
 from vllm.model_executor.layers.fused_moe import FusedMoE
 from vllm.model_executor.layers.layernorm import RMSNorm
@@ -65,6 +68,8 @@ from .interfaces import MixtureOfExperts, SupportsLoRA, SupportsPP
 from .utils import (PPMissingLayer, is_pp_missing_parameter,
                     make_empty_intermediate_tensors_factory, make_layers,
                     maybe_prefix)
+
+logger = init_logger(__name__)
 
 
 class DeepseekV2MLP(nn.Module):
@@ -626,6 +631,8 @@ class DeepseekV2DecoderLayer(nn.Module):
         quant_config = vllm_config.quant_config
         parallel_config = vllm_config.parallel_config
 
+        afd_config = vllm_config.afd_config
+        self.role = afd_config.afd_role
         self.hidden_size = config.hidden_size
         rope_theta = getattr(config, "rope_theta", 10000)
         rope_scaling = getattr(config, "rope_scaling", None)
@@ -639,41 +646,44 @@ class DeepseekV2DecoderLayer(nn.Module):
             attn_cls = DeepseekV2MLAAttention
         else:
             attn_cls = DeepseekV2Attention
-        self.self_attn = attn_cls(
-            config=config,
-            hidden_size=self.hidden_size,
-            num_heads=config.num_attention_heads,
-            qk_nope_head_dim=config.qk_nope_head_dim,
-            qk_rope_head_dim=config.qk_rope_head_dim,
-            v_head_dim=config.v_head_dim,
-            q_lora_rank=config.q_lora_rank
-            if hasattr(config, "q_lora_rank") else None,
-            kv_lora_rank=config.kv_lora_rank,
-            rope_theta=rope_theta,
-            rope_scaling=rope_scaling,
-            max_position_embeddings=max_position_embeddings,
-            cache_config=cache_config,
-            quant_config=quant_config,
-            prefix=f"{prefix}.self_attn",
-        )
 
-        if (config.n_routed_experts is not None
-                and layer_idx >= config.first_k_dense_replace
-                and layer_idx % config.moe_layer_freq == 0):
-            self.mlp = DeepseekV2MoE(
+        if self.role is None or self.role == "attention":
+            self.self_attn = attn_cls(
                 config=config,
-                parallel_config=parallel_config,
+                hidden_size=self.hidden_size,
+                num_heads=config.num_attention_heads,
+                qk_nope_head_dim=config.qk_nope_head_dim,
+                qk_rope_head_dim=config.qk_rope_head_dim,
+                v_head_dim=config.v_head_dim,
+                q_lora_rank=config.q_lora_rank if hasattr(
+                    config, "q_lora_rank") else None,
+                kv_lora_rank=config.kv_lora_rank,
+                rope_theta=rope_theta,
+                rope_scaling=rope_scaling,
+                max_position_embeddings=max_position_embeddings,
+                cache_config=cache_config,
                 quant_config=quant_config,
-                prefix=f"{prefix}.mlp",
+                prefix=f"{prefix}.self_attn",
             )
-        else:
-            self.mlp = DeepseekV2MLP(
-                hidden_size=config.hidden_size,
-                intermediate_size=config.intermediate_size,
-                hidden_act=config.hidden_act,
-                quant_config=quant_config,
-                prefix=f"{prefix}.mlp",
-            )
+
+        if self.role is None or self.role == "ffn":
+            if (config.n_routed_experts is not None
+                    and layer_idx >= config.first_k_dense_replace
+                    and layer_idx % config.moe_layer_freq == 0):
+                self.mlp = DeepseekV2MoE(
+                    config=config,
+                    parallel_config=parallel_config,
+                    quant_config=quant_config,
+                    prefix=f"{prefix}.mlp",
+                )
+            else:
+                self.mlp = DeepseekV2MLP(
+                    hidden_size=config.hidden_size,
+                    intermediate_size=config.intermediate_size,
+                    hidden_act=config.hidden_act,
+                    quant_config=quant_config,
+                    prefix=f"{prefix}.mlp",
+                )
         self.input_layernorm = RMSNorm(config.hidden_size,
                                        eps=config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(config.hidden_size,
@@ -687,6 +697,10 @@ class DeepseekV2DecoderLayer(nn.Module):
         residual: Optional[torch.Tensor],
     ) -> torch.Tensor:
         # Self Attention
+        forward_ctx = get_forward_context()
+        afd_metadata = (forward_ctx.afd_metadata
+                        if forward_ctx is not None else None)
+        afd_connector = afd_metadata.afd_connector
         if residual is None:
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states)
@@ -711,6 +725,11 @@ class DeepseekV2DecoderLayer(nn.Module):
         # Fully Connected
         hidden_states, residual = self.post_attention_layernorm(
             hidden_states, residual)
+        if self.role == "attention":
+            afd_connector.send_attn_output(hidden_states, None)
+            hidden_states = afd_connector.recv_ffn_output(None)
+            return hidden_states, residual
+
         hidden_states = self.mlp(hidden_states)
 
         if isinstance(self.mlp,
@@ -723,6 +742,59 @@ class DeepseekV2DecoderLayer(nn.Module):
             hidden_states *= 1. / self.routed_scaling_factor
 
         return hidden_states, residual
+
+    def compute_attn_output(
+        self,
+        positions: torch.Tensor,
+        hidden_states: torch.Tensor,
+        residual: Optional[torch.Tensor],
+    ) -> torch.Tensor:  # Self Attention
+        if residual is None:
+            residual = hidden_states
+            hidden_states = self.input_layernorm(hidden_states)
+        else:
+            hidden_states, residual = self.input_layernorm(
+                hidden_states, residual)
+        hidden_states = self.self_attn(
+            positions=positions,
+            hidden_states=hidden_states,
+        )
+
+        if hidden_states.dtype == torch.float16:
+            # Fix FP16 overflow
+            # We scale both hidden_states and residual before
+            # rmsnorm, and rmsnorm result would not affect by scale.
+            hidden_states *= 1. / self.routed_scaling_factor
+            if self.layer_idx == 0:
+                # The residual is shared by all layers, we only scale it on
+                # first layer.
+                residual *= 1. / self.routed_scaling_factor
+
+        # Fully Connected
+        hidden_states, residual = self.post_attention_layernorm(
+            hidden_states, residual)
+
+        # afd_connector = get_afd_connector()
+        # afd_connector.send_attn_output(
+        #         IntermediateTensors({
+        #             "hidden_states": hidden_states,
+        #         }))
+        # hidden_states = afd_connector.recv_ffn_output(
+        #     )['hidden_states']
+        return hidden_states, residual
+
+    def compute_ffn_output(self, hidden_states):
+        assert self.role == "ffn"
+        hidden_states = self.mlp(hidden_states)
+        if isinstance(self.mlp,
+                      DeepseekV2MLP) and hidden_states.dtype == torch.float16:
+            # Fix FP16 overflow
+            # Scaling the DeepseekV2MLP output, it is the input of
+            # input_layernorm of next decoder layer.
+            # The scaling of DeepseekV2MOE output would be done in the forward
+            # of DeepseekV2MOE
+            hidden_states *= 1. / self.routed_scaling_factor
+        return hidden_states
 
 
 @support_torch_compile
@@ -782,8 +854,29 @@ class DeepseekV2Model(nn.Module):
             hidden_states = intermediate_tensors["hidden_states"]
             residual = intermediate_tensors["residual"]
 
+        forward_ctx = get_forward_context()
+        afd_metadata = (forward_ctx.afd_metadata
+                        if forward_ctx is not None else None)
+
         for layer in islice(self.layers, self.start_layer, self.end_layer):
-            hidden_states, residual = layer(positions, hidden_states, residual)
+            if (afd_metadata is not None
+                    and isinstance(afd_metadata.afd_tokens_start_loc, list)
+                    and len(afd_metadata.afd_tokens_start_loc) - 1 > 1):
+                num_stages = len(afd_metadata.afd_tokens_start_loc) - 1
+                stage_hidden_states: list[torch.Tensor] = []
+                stage_residual: list[Optional[torch.Tensor]] = []
+                stage_positions: list[torch.Tensor] = []
+                for stage_idx in range(num_stages):
+                    start = afd_metadata.afd_tokens_start_loc[stage_idx]
+                    end = start + afd_metadata.afd_tokens_lens[stage_idx]
+                    stage_hidden_states.append(
+                        hidden_states[start:end].clone())
+                    stage_residual.append(residual[start:end].clone(
+                    ) if residual is not None else None)
+                    stage_positions.append(positions[start:end])
+            else:
+                hidden_states, residual = layer(positions, hidden_states,
+                                                residual)
 
         if not get_pp_group().is_last_rank:
             return IntermediateTensors({
@@ -792,6 +885,13 @@ class DeepseekV2Model(nn.Module):
             })
 
         hidden_states, _ = self.norm(hidden_states, residual)
+        return hidden_states
+
+    def compute_ffn_output(
+            self, hidden_states,
+            layer_idx) -> Union[torch.Tensor, IntermediateTensors]:
+        hidden_states = self.layers[layer_idx].compute_ffn_output(
+            hidden_states)
         return hidden_states
 
 
@@ -807,7 +907,7 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts,
         quant_config = vllm_config.quant_config
         self.config = config
         self.quant_config = quant_config
-
+        self.afd_config = vllm_config.afd_config
         # `packed_modules_mapping` needs to be modified before
         # initializing DeepseekV2Model, as it is passed inplace to
         # quantization config init and may be used to select the
@@ -845,11 +945,15 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts,
                 continue
 
             assert isinstance(layer, DeepseekV2DecoderLayer)
-            if isinstance(layer.mlp, DeepseekV2MoE):
+            if (self.afd_config.afd_role is None or self.afd_config.afd_role
+                    == "ffn") and isinstance(layer.mlp, DeepseekV2MoE):
+                #if isinstance(layer.mlp, DeepseekV2MoE):
                 # Pick last one layer since the first ones may be dense layers.
                 example_moe = layer.mlp
                 self.moe_layers.append(layer.mlp.experts)
 
+        if self.afd_config.afd_role == "attention":
+            return
         if example_moe is None:
             raise RuntimeError("No DeepseekV2MoE layer found in model.layers.")
 
@@ -908,6 +1012,13 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts,
                                    inputs_embeds)
         return hidden_states
 
+    def compute_ffn_output(
+            self, current_layer_idx,
+            hidden_states) -> Union[torch.Tensor, IntermediateTensors]:
+        hidden_states = self.model.compute_ffn_output(hidden_states,
+                                                      current_layer_idx)
+        return hidden_states
+
     def compute_logits(
         self,
         hidden_states: torch.Tensor,
@@ -929,19 +1040,27 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts,
 
         # Params for weights, fp8 weight scales, fp8 activation scales
         # (param_name, weight_name, expert_id, shard_id)
+        if self.afd_config.afd_role == "attention":
+            vllm_config = get_current_vllm_config()
+            num_redundant_experts = (
+                vllm_config.parallel_config.eplb_config.num_redundant_experts)
+        else:
+            num_redundant_experts = self.num_redundant_experts
         expert_params_mapping = FusedMoE.make_expert_params_mapping(
             ckpt_gate_proj_name="gate_proj",
             ckpt_down_proj_name="down_proj",
             ckpt_up_proj_name="up_proj",
             num_experts=self.config.n_routed_experts,
-            num_redundant_experts=self.num_redundant_experts)
+            num_redundant_experts=num_redundant_experts)
 
         params_dict = dict(self.named_parameters())
         loaded_params: set[str] = set()
         for name, loaded_weight in weights:
             if "rotary_emb.inv_freq" in name:
                 continue
-
+            if self.afd_config.afd_role == "attention" and self.is_moe_weight(
+                    name):
+                continue
             spec_layer = get_spec_layer_idx_from_weight_name(self.config, name)
             if spec_layer is not None:
                 continue  # skip spec decode layers for main model
@@ -989,7 +1108,9 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts,
                     # Anyway, this is an expert weight and should not be
                     # attempted to load as other weights later
                     is_expert_weight = True
-
+                    if (self.afd_config.afd_role is not None
+                            and self.afd_config.afd_role == "attention"):
+                        continue
                     # Do not modify `name` since the loop may continue here
                     # Instead, create a new variable
                     name_mapped = name.replace(weight_name, param_name)
@@ -1013,6 +1134,12 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts,
                         name = name_mapped
                         break
                 else:
+                    if (
+                        self.afd_config.afd_role == "ffn"
+                        and not self.is_moe_weight(name)
+                        and not self.is_common_weight(name)
+                    ):
+                        continue
                     if is_expert_weight:
                         # We've checked that this is an expert weight
                         # However it's not mapped locally to this rank
@@ -1038,6 +1165,18 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts,
             loaded_params.add(name)
 
         return loaded_params
+
+    def is_moe_weight(self, name):
+        return bool("shared_experts" in name or "experts" in name
+                    or "gate" in name or "up" in name or "down" in name)
+
+    def is_common_weight(self, name):
+        if ("lm_head" in name or "model.norm.weight" in name
+                or "embed_tokens" in name or "input_layernorm" in name
+                or "post_attention_layernorm" in name):
+            # or "model.layers.0.self_attn.o_proj.weight" in name:# for init kv cache
+            return True
+        return False
 
 
 class DeepseekV3ForCausalLM(DeepseekV2ForCausalLM):

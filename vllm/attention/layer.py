@@ -617,7 +617,8 @@ def unified_attention_with_output(
     wait_for_kv_layer_from_connector(layer_name)
     forward_context: ForwardContext = get_forward_context()
     attn_metadata = forward_context.attn_metadata
-    if isinstance(attn_metadata, dict):
+    afd_stage_idx = forward_context.afd_metadata.afd_stage_idx
+    if isinstance(attn_metadata, dict) and afd_stage_idx > 1:
         attn_metadata = attn_metadata[layer_name]
         if forward_context.afd_metadata:
             afd_stage_idx = forward_context.afd_metadata.afd_stage_idx
@@ -625,6 +626,9 @@ def unified_attention_with_output(
                 attn_metadata = attn_metadata[afd_stage_idx]
             else:
                 attn_metadata = None  # padding
+    else:
+        attn_metadata = attn_metadata[
+            layer_name] if attn_metadata != None else None
     self = forward_context.no_compile_layers[layer_name]
     kv_cache = self.kv_cache[forward_context.virtual_engine]
     self.impl.forward(self,

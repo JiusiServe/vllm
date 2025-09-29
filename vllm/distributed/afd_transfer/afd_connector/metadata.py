@@ -22,6 +22,21 @@ class AFDConnectorMetadata:
     dtype: torch.dtype
     device: torch.device
 
+    topk_idx: Optional[torch.Tensor]
+    # indices token which expert to be sended
+    topk_weights: Optional[torch.Tensor]
+    # the expert weights
+    moe_expert_num: Optional[int]
+    # number of moe experts
+    shared_expert_num: Optional[int]
+    # number of share experts
+    scale: Optional[torch.Tensor]
+    #  quant scale
+    expertTokenNumsOut: Optional[torch.Tensor]
+    # The number of tokens received by each expert used as input for GMM
+    handle: Optional[torch.Tensor]
+    # the communication handle given by the recv_attn_output function
+
     # Optional fields for debugging and extensibility
     request_id: Optional[str] = None
     timestamp: Optional[float] = None
