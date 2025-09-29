@@ -167,7 +167,7 @@ async def chat_completions(request: Request):
         ingress_wall_ns = time.time_ns()
         request_id = request.headers.get("x-request-id")
         try:
-            meta_entry = app.state.ttft_store.get(request_id)
+            meta_entry = app.state.ttft_store.get(request_id, None)
             if meta_entry is None:
                 meta_entry = TTFTStoreEntry()
                 app.state.ttft_store[request_id] = meta_entry
@@ -317,6 +317,7 @@ class TTFTPartial:
 class TTFTStoreEntry:
     encoder: TTFTPartial = field(default_factory=TTFTPartial)
     pd: TTFTPartial = field(default_factory=TTFTPartial)
+    meta: TTFTPartial = field(default_factory=TTFTPartial)
     ts_last_update: float = field(default_factory=lambda: time.time())
 
     def merge(self, role: str, payload: dict):
@@ -376,6 +377,7 @@ async def ttft_get(request_id: str):
     return {
         "request_id": request_id,
         "by_role": {
+            "meta": entry.meta.as_dict(),
             "encoder": entry.encoder.as_dict(),
             "pd": entry.pd.as_dict(),
         },
