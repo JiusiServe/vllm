@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import time
+import os
 from collections import defaultdict, deque
 from collections.abc import Iterable
 from typing import Any, Optional, Union
@@ -170,10 +171,12 @@ class Scheduler(SchedulerInterface):
         )
 
         # TTFT
-        self._ttft_enc_queue_start: dict[str, float] = {}
-        self._ttft_enc_queue_report: set[str] = set()
-        self._ttft_prefill_queue_start: dict[str, float] = {}
-        self._ttft_prefill_queue_report: set[str] = set()
+        self.TTFT_ENABLED = os.environ.get("TTFT_ENABLED", "0")
+        if self.TTFT_ENABLED:
+            self._ttft_enc_queue_start: dict[str, float] = {}
+            self._ttft_enc_queue_report: set[str] = set()
+            self._ttft_prefill_queue_start: dict[str, float] = {}
+            self._ttft_prefill_queue_report: set[str] = set()
 
     def schedule(self) -> SchedulerOutput:
         # NOTE(woosuk) on the scheduling algorithm:
@@ -440,77 +443,79 @@ class Scheduler(SchedulerInterface):
                          ) = self._try_schedule_encoder_inputs(
                              request, num_computed_tokens, num_new_tokens,
                              encoder_budget)
-                        
-                        # If need schedule encoder inputs: enc_queue_start
-                        if request.request_id not in self._ttft_enc_queue_start and \
-                            encoder_inputs_to_schedule:
-                            self._ttft_enc_queue_start[request.request_id] = time.perf_counter()
-
-                        # If need schedule encoder inputs and already start: enc_queue_end
-                        if request.request_id in self._ttft_enc_queue_start and \
-                            request.request_id not in self._ttft_enc_queue_report and \
+                        if self.TTFT_ENABLED:
+                            # If need schedule encoder inputs: enc_queue_start
+                            if request.request_id not in self._ttft_enc_queue_start and \
                                 encoder_inputs_to_schedule:
-                            t_start_queue = self._ttft_enc_queue_start[request.request_id]
-                            enc_queue_ms = (time.perf_counter() - t_start_queue) * 1000
-                            rid = request.request_id
-                            if rid.startswith("chatcmpl-"):
-                                rid = rid[len("chatcmpl-"):]
-                            payload = {
-                                "role": "encoder",
-                                "request_id": rid,
-                                "enc_queue_time_ms": enc_queue_ms,
-                            }
-                            try:
-                                send_ttft_report(payload)
-                            except Exception as e:
-                                pass
-                            self._ttft_enc_queue_report.add(request.request_id)
-                        
-                        # If no need schedule encoder inputs: prefill_queue_start
-                        no_more_encoder_work = not encoder_inputs_to_schedule and not external_load_encoder_input
-                        if no_more_encoder_work and request.request_id not in self._ttft_prefill_queue_start:
-                            self._ttft_prefill_queue_start[request.request_id] = time.perf_counter()
+                                self._ttft_enc_queue_start[request.request_id] = time.perf_counter()
+
+                            # If need schedule encoder inputs and already start: enc_queue_end
+                            if request.request_id in self._ttft_enc_queue_start and \
+                                request.request_id not in self._ttft_enc_queue_report and \
+                                    encoder_inputs_to_schedule:
+                                t_start_queue = self._ttft_enc_queue_start[request.request_id]
+                                enc_queue_ms = (time.perf_counter() - t_start_queue) * 1000
+                                rid = request.request_id
+                                if rid.startswith("chatcmpl-"):
+                                    rid = rid[len("chatcmpl-"):]
+                                payload = {
+                                    "role": "encoder",
+                                    "request_id": rid,
+                                    "enc_queue_time_ms": enc_queue_ms,
+                                }
+                                try:
+                                    send_ttft_report(payload)
+                                except Exception as e:
+                                    pass
+                                self._ttft_enc_queue_report.add(request.request_id)
+                            
+                            # If no need schedule encoder inputs: prefill_queue_start
+                            no_more_encoder_work = not encoder_inputs_to_schedule and not external_load_encoder_input
+                            if no_more_encoder_work and request.request_id not in self._ttft_prefill_queue_start:
+                                self._ttft_prefill_queue_start[request.request_id] = time.perf_counter()
 
                         if num_new_tokens == 0:
                             # The request cannot be scheduled.
                             break
                     else:
-                        if request.request_id not in self._ttft_prefill_queue_start:
-                            self._ttft_prefill_queue_start[request.request_id] = time.perf_counter()
-                    # allocate num_new_tokens for this request for the first time
-                    if request.request_id in self._ttft_prefill_queue_start:
-                        if request.request_id not in self._ttft_prefill_queue_report and num_new_tokens > 0:
-                            t_start_queue = self._ttft_prefill_queue_start[request.request_id]
-                            prefill_queue_ms = (time.perf_counter() - t_start_queue) * 1000
+                        if self.TTFT_ENABLED:
+                            if request.request_id not in self._ttft_prefill_queue_start:
+                                self._ttft_prefill_queue_start[request.request_id] = time.perf_counter()
+                    if self.TTFT_ENABLED:
+                        # allocate num_new_tokens for this request for the first time
+                        if request.request_id in self._ttft_prefill_queue_start:
+                            if request.request_id not in self._ttft_prefill_queue_report and num_new_tokens > 0:
+                                t_start_queue = self._ttft_prefill_queue_start[request.request_id]
+                                prefill_queue_ms = (time.perf_counter() - t_start_queue) * 1000
+                                rid = request.request_id
+                                if rid.startswith("chatcmpl-"):
+                                    rid = rid[len("chatcmpl-"):]
+                                payload = {
+                                    "role": "pd",
+                                    "request_id": rid,
+                                    "prefill_queue_time_ms": prefill_queue_ms,
+                                }
+                                try:
+                                    send_ttft_report(payload)
+                                except Exception as e:
+                                    pass
+                                self._ttft_prefill_queue_report.add(request.request_id)
+                        elif num_new_tokens > 0 and request.request_id not in self._ttft_prefill_queue_report:
+                            # If need to process encoder and prefill at the same time
+                            # prefill_queue_time_ms = 0
                             rid = request.request_id
                             if rid.startswith("chatcmpl-"):
                                 rid = rid[len("chatcmpl-"):]
                             payload = {
                                 "role": "pd",
                                 "request_id": rid,
-                                "prefill_queue_time_ms": prefill_queue_ms,
+                                "prefill_queue_time_ms": 0.0,
                             }
                             try:
                                 send_ttft_report(payload)
-                            except Exception as e:
+                            except Exception:
                                 pass
                             self._ttft_prefill_queue_report.add(request.request_id)
-                    elif num_new_tokens > 0 and request.request_id not in self._ttft_prefill_queue_report:
-                        # If need to process encoder and prefill at the same time
-                        # prefill_queue_time_ms = 0
-                        rid = request.request_id
-                        if rid.startswith("chatcmpl-"):
-                            rid = rid[len("chatcmpl-"):]
-                        payload = {
-                            "role": "pd",
-                            "request_id": rid,
-                            "prefill_queue_time_ms": 0.0,
-                        }
-                        try:
-                            send_ttft_report(payload)
-                        except Exception:
-                            pass
-                        self._ttft_prefill_queue_report.add(request.request_id)
 
                 new_blocks = self.kv_cache_manager.allocate_slots(
                     request,
