@@ -103,22 +103,19 @@ def _parse(u: str):
 HOST, PORT, PATH = _parse(_URL)
 
 def send_ttft_report(payload: dict) -> None:
-    # 调用入口
-    print(f"[TTFT][REPORTER_CALL] host={HOST} port={PORT} path={PATH} payload={payload}", flush=True)
-
     if HOST is None:
         return
     if not payload or "request_id" not in payload:
         return
 
-    # 序列化
+    # serialize
     try:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     except Exception as e:
         print(f"[TTFT][SERIALIZE_FAIL] {e} payload={payload}", file=sys.stderr, flush=True)
         return
 
-    # 连接
+    # socket connect
     t0 = time.perf_counter()
     try:
         sock = socket.create_connection((HOST, PORT), timeout=0.2)
@@ -127,7 +124,7 @@ def send_ttft_report(payload: dict) -> None:
         return
     t_conn = (time.perf_counter() - t0) * 1000
 
-    # 发送
+    # send request
     try:
         req = (
             f"POST {PATH} HTTP/1.1\r\n"
@@ -147,7 +144,7 @@ def send_ttft_report(payload: dict) -> None:
             pass
         return
 
-    # 直接关闭（不读响应）
+    # close socket without reading response
     try:
         sock.close()
     except:

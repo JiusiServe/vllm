@@ -266,14 +266,13 @@ async def health_check():
 
 @dataclass
 class TTFTPartial:
-    # 5 分项，允许缺省
     enc_queue_time_ms: Optional[float] = None
     enc_compute_time_ms: Optional[float] = None
     emb_cache_transfer_time_ms: Optional[float] = None
     prefill_queue_time_ms: Optional[float] = None
     prefill_compute_time_ms: Optional[float] = None
 
-    t_request_ingress_ns: Optional[int] = None     # 入口时间(绝对纳秒)
+    t_request_ingress_ns: Optional[int] = None     # request entry time (absolute ns)
     enc_ingress_wait_ms: Optional[float] = None    # ingress→enc_start
 
     def merge(self, payload: dict):
@@ -296,7 +295,7 @@ class TTFTPartial:
                         pass
                 else:
                     setattr(self, k, float(payload[k]))
-    # 判断指标是否都收集齐了
+    # judgement for collecting all the data
     def is_complete(self) -> bool:
         return all(getattr(self, k) is not None for k in (
             "enc_queue_time_ms","enc_compute_time_ms",
@@ -316,7 +315,7 @@ class TTFTPartial:
         if self.is_complete():
             d["ttft_ms"] = sum(
                 v for k, v in d.items() 
-                if k.endswith("_time_ms") and v is not None)  # 5 项之和
+                if k.endswith("_time_ms") and v is not None)
         return d
 
 @dataclass
@@ -336,14 +335,14 @@ class TTFTStoreEntry:
             self.meta.merge(payload)
 
     def combined(self):
-        # 合并两个 partial；后者覆盖前者的同名字段
+        # merge three partials, behind one cover the front one
         merged = TTFTPartial()
         merged.merge(self.meta.as_dict())
         merged.merge(self.encoder.as_dict())
         merged.merge(self.pd.as_dict())
         return merged
 
-# 在 startup() 之后初始化存储
+# init
 if not hasattr(app.state, "ttft_store"):
     app.state.ttft_store: dict[str, TTFTStoreEntry] = {}
 
