@@ -165,13 +165,17 @@ async def chat_completions(request: Request):
     """Handle chat completion requests."""
     try:
         ingress_wall_ns = time.time_ns()
-        request_id = request.headers.get("x-request-id")
+        raw_id = request.headers.get("x-request-id")
+        request_id = raw_id if raw_id else str(uuid.uuid4())
         try:
             meta_entry = app.state.ttft_store.get(request_id, None)
             if meta_entry is None:
                 meta_entry = TTFTStoreEntry()
                 app.state.ttft_store[request_id] = meta_entry
-                meta_entry.merge("meta", {"t_request_ingress_ns": ingress_wall_ns})
+                entry.merge("meta", {
+                    "request_id": request_id,
+                    "t_request_ingress_ns": ingress_wall_ns
+                })
         except Exception:
             pass  # ignore if not found
         e_instance = random.randint(0, len(app.state.e_urls) - 1)
@@ -344,9 +348,9 @@ if not hasattr(app.state, "ttft_store"):
 @app.post("/ttft_report")
 async def ttft_report(request: Request):
     body = await request.json()
-    role = body.get("role")  # "encoder" | "pd"
+    role = body.get("role")  # "encoder" | "pd" | "meta"
     request_id = body.get("request_id")
-    if role not in ("encoder", "pd") or not request_id:
+    if role not in ("encoder", "pd", "meta") or not request_id:
         raise HTTPException(status_code=400, detail="role or request_id missing")
 
     entry = app.state.ttft_store.get(request_id)
