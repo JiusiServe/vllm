@@ -135,6 +135,17 @@ class ECConnectorBase(ABC):
         pass
 
     @abstractmethod
+    def clean_caches(self, request: "Request") -> None:
+        """
+        clean caches in ec_consumer side when request is finish.
+
+        Args:
+            request: Request
+
+        """
+        pass
+
+    @abstractmethod
     def save_caches(self, **kwargs) -> None:
         """
         Save caches into connector

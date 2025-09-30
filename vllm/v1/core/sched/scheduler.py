@@ -835,6 +835,8 @@ class Scheduler(SchedulerInterface):
                 if stopped:
                     kv_transfer_params = self._free_request(request)
                     del new_token_ids[num_new:]  # Trim new tokens if needed.
+                    if self.ec_connector is not None:
+                        self.ec_connector.clean_caches(request)
                     break
 
             # Extract sample logprobs if needed.

@@ -54,6 +54,7 @@ class ECSharedStorageConnector(ECConnectorBase):
         transfer_config = vllm_config.ec_transfer_config
         self._storage_path = transfer_config.get_from_extra_config(
             "shared_storage_path", "/tmp")
+        self._is_consumer = transfer_config.is_ec_consumer
         logger.debug(transfer_config)
         logger.debug("Shared storage path is %s", self._storage_path)
 
@@ -94,15 +95,6 @@ class ECSharedStorageConnector(ECConnectorBase):
                 logger.debug(
                     "Success load encoder cache for request_id %s, input_id %d",
                     mm_data.request_id, input_id)
-                foldername = self._generate_foldername_debug(
-                    f"{mm_data.request_id}_{input_id}", False)
-                try:
-                    os.remove(filename)
-                    os.rmdir(foldername)
-                except OSError as e:
-                    logger.warning(
-                        "Failed to remove cache file %s or directory %s: %s",
-                        filename, foldername, e)
 
     def save_caches(self, **kwargs) -> None:
         """Start saving the EC cache for each mm_datas from encoder cache
@@ -163,6 +155,24 @@ class ECSharedStorageConnector(ECConnectorBase):
         # for mm_hash in request.mm_hashes:
         #     result.append(self._found_match_for_mm_data(mm_hash))
         return result
+
+    def clean_caches(
+        self,
+        request: "Request",
+    ):
+        request_id = request.request_id
+        if self._is_consumer and request.mm_positions:
+            for input_id in range(len(request.mm_positions)):
+                mm_hash = f"{request_id}_{input_id}"
+                filename = self._generate_filename_debug(mm_hash)
+                flodername = self._generate_foldername_debug(mm_hash, False)
+                try:
+                    os.remove(filename)
+                    os.rmdir(flodername)
+                except OSError as e:
+                    logger.warning(
+                        "Failed to remove cache file %s or directory %s: %s",
+                        filename, flodername, e)
 
     def update_state_after_alloc(
         self,
