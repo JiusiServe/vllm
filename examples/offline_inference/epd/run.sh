@@ -2,13 +2,16 @@
 
 set -euo pipefail
 
+CURRENT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
 MAX_NUM_SEQS_ENCODER="${MAX_NUM_SEQS_ENCODER:-1}"
 MAX_NUM_SEQS_PD="${MAX_NUM_SEQS_PD:-128}"
 ENCODER_ADDR_PREFIX="${ENCODER_ADDR_PREFIX:-/tmp/encoder}"
 PD_ADDR_PREFIX="${PD_ADDR_PREFIX:-/tmp/prefill_decode}"
 PROXY_ADDR="${PROXY_ADDR:-/tmp/proxy}"
+PID_FILE="${PID_FILE:-${CURRENT_DIR}/pid.txt}"
 
-MODEL="Qwen2.5-VL-3B-Instruct"
+MODEL=""
 SHARED_STORAGE_PATH="/dev/shm/epd"
 GPU_UTILIZATION_ENCODER=0.0
 GPU_UTILIZATION_PD=0.95
@@ -16,8 +19,7 @@ ENCODER_DEVICE_ID_BASE=0
 ENCODER_NUMBER=1
 PD_DEVICE_ID_BASE=1
 PD_NUMBER=1
-LOG_PATH="./logs"
-PID_FILE="./pid.txt"
+LOG_PATH="${CURRENT_DIR}/logs"
 IMAGE_FILE_PATH=""
 
 function start_encoder() {
@@ -135,7 +137,8 @@ function print_help() {
               [--gpu-utilization-encoder FLOAT] [--gpu-utilization-pd FLOAT]
               [--encoder-device-id-base INT] [--encoder-number INT]
               [--pd-device-id-base INT] [--pd-number INT]
-              [--log-path PATH] [--stop] [--help]"
+              [--image-file-path PATH] [--log-path PATH]
+              [--stop] [--help]"
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -157,10 +160,20 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+if [ -z "$MODEL" ]; then
+    echo "Error: --model is required."
+    exit 1
+fi
+
+if [ -z "$IMAGE_FILE_PATH" ]; then
+    echo "Error: --image-file-path is required."
+    exit 1
+fi
+
 start_all
 
 chat_with_image() {
-    python -m vllm.entrypoints.disaggregated.chat_with_image \
+    python $CURRENT_DIR/chat_with_image.py \
         --proxy-addr $PROXY_ADDR \
         --encode-addr-list $(for ((i=0; i<ENCODER_NUMBER; i++)); do echo -n "${ENCODER_ADDR_PREFIX}_$i "; done) \
         --pd-addr-list $(for ((i=0; i<PD_NUMBER; i++)); do echo -n "${PD_ADDR_PREFIX}_$i "; done) \
