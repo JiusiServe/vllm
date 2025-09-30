@@ -89,7 +89,7 @@ class P2PAFDConnector(AFDConnectorBase):
                 ranks = list([attn_ranks[i], ffn_ranks[i]])
                 sub_group_ranks.append(ranks)
             self.process_group = init_model_parallel_group(
-                sub_group_ranks, self.rank, backend="nccl", group_name="ae"
+                sub_group_ranks, self.rank, backend=backend, group_name="ae"
             )
 
         logger.info("p2p connector initialized")

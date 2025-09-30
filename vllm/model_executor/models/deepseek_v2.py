@@ -69,6 +69,9 @@ from .utils import (PPMissingLayer, is_pp_missing_parameter,
                     make_empty_intermediate_tensors_factory, make_layers,
                     maybe_prefix)
 
+from vllm.distributed.afd_transfer.afd_connector.metadata import (
+    AFDConnectorMetadata,FFNNeedForwardData)
+
 logger = init_logger(__name__)
 
 
@@ -725,11 +728,28 @@ class DeepseekV2DecoderLayer(nn.Module):
         # Fully Connected
         hidden_states, residual = self.post_attention_layernorm(
             hidden_states, residual)
+        # ---------ascend ffn need data
+        if forward_ctx.moe_comm_method_name is not None:
+            moe_comm_method = forward_ctx.moe_comm_method_name
+            num_tokens = hidden_states.shape[0]
+            with_prefill = forward_ctx.with_prefill
+
+            ffn_need_forward_data = FFNNeedForwardData(moe_comm_method,num_tokens,with_prefill)
+            num_stages = 0
+            metadata = AFDConnectorMetadata.create_attention_metadata(
+                layer_idx=self.layer_idx,
+                stage_idx=num_stages, 
+                seq_len=hidden_states.shape[0],
+                dtype=hidden_states.dtype,
+                device=hidden_states.device,
+                ffn_need_forward_data=ffn_need_forward_data
+            )
+        else:
+            metadata = None
         if self.role == "attention":
-            afd_connector.send_attn_output(hidden_states, None)
+            afd_connector.send_attn_output(hidden_states, metadata)
             hidden_states = afd_connector.recv_ffn_output(None)
             return hidden_states, residual
-
         hidden_states = self.mlp(hidden_states)
 
         if isinstance(self.mlp,
@@ -774,13 +794,6 @@ class DeepseekV2DecoderLayer(nn.Module):
         hidden_states, residual = self.post_attention_layernorm(
             hidden_states, residual)
 
-        # afd_connector = get_afd_connector()
-        # afd_connector.send_attn_output(
-        #         IntermediateTensors({
-        #             "hidden_states": hidden_states,
-        #         }))
-        # hidden_states = afd_connector.recv_ffn_output(
-        #     )['hidden_states']
         return hidden_states, residual
 
     def compute_ffn_output(self, hidden_states):
@@ -947,7 +960,6 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts,
             assert isinstance(layer, DeepseekV2DecoderLayer)
             if (self.afd_config.afd_role is None or self.afd_config.afd_role
                     == "ffn") and isinstance(layer.mlp, DeepseekV2MoE):
-                #if isinstance(layer.mlp, DeepseekV2MoE):
                 # Pick last one layer since the first ones may be dense layers.
                 example_moe = layer.mlp
                 self.moe_layers.append(layer.mlp.experts)
