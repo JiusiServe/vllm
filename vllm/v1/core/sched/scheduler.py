@@ -20,7 +20,7 @@ from vllm.distributed.kv_transfer.kv_connector.factory import (
 from vllm.distributed.kv_transfer.kv_connector.v1 import (KVConnectorBase_V1,
                                                           KVConnectorRole)
 from vllm.logger import init_logger
-from vllm.model_executor.utils import send_ttft_report
+from vllm.metrics.ttft import observe_enc_queue, observe_prefill_queue
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.v1.core.encoder_cache_manager import (EncoderCacheManager,
                                                 compute_encoder_budget)
@@ -463,16 +463,14 @@ class Scheduler(SchedulerInterface):
                                     request.request_id]
                                 enc_queue_ms = (time.perf_counter() -
                                                 t_start_queue) * 1000
-                                rid = request.request_id
-                                if rid.startswith("chatcmpl-"):
-                                    rid = rid[len("chatcmpl-"):]
-                                payload = {
-                                    "role": "encoder",
-                                    "request_id": rid,
-                                    "enc_queue_time_ms": enc_queue_ms,
-                                }
                                 with suppress(Exception):
-                                    send_ttft_report(payload)
+                                    model_name = self.vllm_config.\
+                                        model_config.model
+                                    instance_id = getattr(
+                                        self.vllm_config, "instance_id", None)
+                                    is_mm = request.has_encoder_inputs
+                                    observe_enc_queue(enc_queue_ms, model_name,
+                                                      instance_id, is_mm)
                                 self._ttft_enc_queue_report.add(
                                     request.request_id)
 
@@ -506,32 +504,28 @@ class Scheduler(SchedulerInterface):
                                     request.request_id]
                                 prefill_queue_ms = (time.perf_counter() -
                                                     t_start_queue) * 1000
-                                rid = request.request_id
-                                if rid.startswith("chatcmpl-"):
-                                    rid = rid[len("chatcmpl-"):]
-                                payload = {
-                                    "role": "pd",
-                                    "request_id": rid,
-                                    "prefill_queue_time_ms": prefill_queue_ms,
-                                }
                                 with suppress(Exception):
-                                    send_ttft_report(payload)
+                                    model_name = self.vllm_config.\
+                                        model_config.model
+                                    instance_id = getattr(
+                                        self.vllm_config, "instance_id", None)
+                                    is_mm = request.has_encoder_inputs
+                                    observe_prefill_queue(
+                                        prefill_queue_ms, model_name,
+                                        instance_id, is_mm)
                                 self._ttft_prefill_queue_report.add(
                                     request.request_id)
                         elif num_new_tokens > 0 and request.request_id \
                             not in self._ttft_prefill_queue_report:
                             # If need to process encoder and prefill
                             # at the same time prefill_queue_time_ms = 0
-                            rid = request.request_id
-                            if rid.startswith("chatcmpl-"):
-                                rid = rid[len("chatcmpl-"):]
-                            payload = {
-                                "role": "pd",
-                                "request_id": rid,
-                                "prefill_queue_time_ms": 0.0,
-                            }
                             with suppress(Exception):
-                                send_ttft_report(payload)
+                                model_name = self.vllm_config.model_config.model
+                                instance_id = getattr(self.vllm_config,
+                                                      "instance_id", None)
+                                is_mm = request.has_encoder_inputs
+                                observe_prefill_queue(0.0, model_name,
+                                                      instance_id, is_mm)
                             self._ttft_prefill_queue_report.add(
                                 request.request_id)
 
