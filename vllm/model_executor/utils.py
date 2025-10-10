@@ -1,20 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """Utils for model executor."""
-from __future__ import annotations
 import copy
-import socket
-import sys
-import time
 from typing import Any, Optional
-import torch
-import json
-import os
-import urllib.request
-import urllib.error
 
-_DEFAULT_URL = "http://127.0.0.1:5580/ttft_report"
-_URL = os.getenv("VLLM_TTFT_REPORT_URL", _DEFAULT_URL)
+import torch
+
 
 def set_random_seed(seed: int) -> None:
     from vllm.platforms import current_platform
@@ -84,70 +75,3 @@ def get_packed_modules_mapping(model: torch.nn.Module) -> dict[str, list[str]]:
         else:
             parent_map.update(child_map)
     return parent_map
-
-def _parse(u: str):
-    assert u.startswith("http://")
-    rest = u[7:]
-    if "/" in rest:
-        host_port, path = rest.split("/", 1)
-        path = "/" + path
-    else:
-        host_port, path = rest, "/"
-    if ":" in host_port:
-        host, port = host_port.split(":", 1)
-        port = int(port)
-    else:
-        host, port = host_port, 80
-    return host, port, path
-
-HOST, PORT, PATH = _parse(_URL)
-
-def send_ttft_report(payload: dict) -> None:
-    if HOST is None:
-        return
-    if not payload or "request_id" not in payload:
-        return
-
-    # serialize
-    try:
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    except Exception as e:
-        print(f"[TTFT][SERIALIZE_FAIL] {e} payload={payload}", file=sys.stderr, flush=True)
-        return
-
-    # socket connect
-    t0 = time.perf_counter()
-    try:
-        sock = socket.create_connection((HOST, PORT), timeout=0.2)
-    except Exception as e:
-        print(f"[TTFT][CONN_FAIL] {type(e).__name__}:{e} payload={payload}", file=sys.stderr, flush=True)
-        return
-    t_conn = (time.perf_counter() - t0) * 1000
-
-    # send request
-    try:
-        req = (
-            f"POST {PATH} HTTP/1.1\r\n"
-            f"Host: {HOST}:{PORT}\r\n"
-            "Content-Type: application/json\r\n"
-            f"Content-Length: {len(body)}\r\n"
-            "Connection: close\r\n"
-            "\r\n"
-        ).encode("utf-8") + body
-
-        sock.sendall(req)
-    except Exception as e:
-        print(f"[TTFT][SEND_FAIL] {type(e).__name__}:{e} payload={payload}", file=sys.stderr, flush=True)
-        try:
-            sock.close()
-        except:
-            pass
-        return
-
-    # close socket without reading response
-    try:
-        sock.close()
-    except:
-        pass
-
-    print(f"[TTFT][SENT] conn_ms={t_conn:.2f} size={len(body)}B rid={payload.get('request_id')}", flush=True)

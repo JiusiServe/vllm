@@ -5,13 +5,9 @@ import argparse
 import asyncio
 import copy
 import logging
-import os
 import random
-import time
 import uuid
 from collections.abc import AsyncIterator
-from contextlib import suppress
-from dataclasses import dataclass, field
 from typing import Optional
 
 import aiohttp
@@ -23,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-TTFT_ENABLED = os.environ.get("TTFT_ENABLED", "0")
+
 encode_session: Optional[aiohttp.ClientSession] = None
 decode_session: Optional[aiohttp.ClientSession] = None
 
@@ -166,22 +162,6 @@ async def forward_non_streaming_request(
 async def chat_completions(request: Request):
     """Handle chat completion requests."""
     try:
-        if TTFT_ENABLED:
-            ingress_wall_ns = time.time_ns()
-            raw_id = request.headers.get("x-request-id")
-            request_id = raw_id if raw_id else str(uuid.uuid4())
-            rid = request_id
-            if rid.startswith("chatcmpl-"):
-                rid = rid[len("chatcmpl-") :]
-            # record ingress time for ttft
-            meta_entry = app.state.ttft_store.get(rid)
-            if meta_entry is None:
-                meta_entry = TTFTStoreEntry()
-                app.state.ttft_store[rid] = meta_entry
-            meta_entry.merge(
-                "meta", {"request_id": rid, "t_request_ingress_ns": ingress_wall_ns}
-            )
-
         e_instance = random.randint(0, len(app.state.e_urls) - 1)
         pd_instance = random.randint(0, len(app.state.pd_urls) - 1)
         e_server_url = app.state.e_urls[e_instance]
@@ -265,155 +245,6 @@ async def health_check():
         return JSONResponse(
             content={"proxy": "unhealthy", "error": str(e)}, status_code=503
         )
-
-
-@dataclass
-class TTFTPartial:
-    enc_queue_time_ms: Optional[float] = None
-    enc_compute_time_ms: Optional[float] = None
-    emb_cache_transfer_time_ms: Optional[float] = None
-    prefill_queue_time_ms: Optional[float] = None
-    prefill_compute_time_ms: Optional[float] = None
-
-    t_request_ingress_ns: Optional[int] = None  # request entry time (absolute ns)
-    enc_ingress_wait_ms: Optional[float] = None  # ingress→enc_start
-
-    def merge(self, payload: dict):
-        mapping = (
-            "enc_queue_time_ms",
-            "enc_compute_time_ms",
-            "emb_cache_transfer_time_ms",
-            "prefill_queue_time_ms",
-            "prefill_compute_time_ms",
-            "t_request_ingress_ns",
-            "enc_ingress_wait_ms",
-        )
-        for k in mapping:
-            if k in payload and payload[k] is not None:
-                # t_request_ingress_ns 可能是字符串
-                if k == "t_request_ingress_ns":
-                    with suppress(Exception):
-                        setattr(self, k, int(payload[k]))
-                else:
-                    setattr(self, k, float(payload[k]))
-
-    # judgement for collecting all the data
-    def is_complete(self) -> bool:
-        return all(
-            getattr(self, k) is not None
-            for k in (
-                "enc_queue_time_ms",
-                "enc_compute_time_ms",
-                "emb_cache_transfer_time_ms",
-                "prefill_queue_time_ms",
-                "prefill_compute_time_ms",
-            )
-        )
-
-    def as_dict(self):
-        d = {
-            "enc_queue_time_ms": self.enc_queue_time_ms,
-            "enc_compute_time_ms": self.enc_compute_time_ms,
-            "emb_cache_transfer_time_ms": self.emb_cache_transfer_time_ms,
-            "prefill_queue_time_ms": self.prefill_queue_time_ms,
-            "prefill_compute_time_ms": self.prefill_compute_time_ms,
-            "t_request_ingress_ns": self.t_request_ingress_ns,
-            "enc_ingress_wait_ms": self.enc_ingress_wait_ms,
-        }
-        if self.is_complete():
-            d["ttft_ms"] = sum(
-                v for k, v in d.items() if k.endswith("_time_ms") and v is not None
-            )
-        return d
-
-
-@dataclass
-class TTFTStoreEntry:
-    encoder: TTFTPartial = field(default_factory=TTFTPartial)
-    pd: TTFTPartial = field(default_factory=TTFTPartial)
-    meta: TTFTPartial = field(default_factory=TTFTPartial)
-    ts_last_update: float = field(default_factory=lambda: time.time())
-
-    def merge(self, role: str, payload: dict):
-        self.ts_last_update = time.time()
-        if role == "encoder":
-            self.encoder.merge(payload)
-        elif role == "pd":
-            self.pd.merge(payload)
-        elif role == "meta":
-            self.meta.merge(payload)
-
-    def combined(self):
-        # merge three partials, behind one cover the front one
-        merged = TTFTPartial()
-        merged.merge(self.meta.as_dict())
-        merged.merge(self.encoder.as_dict())
-        merged.merge(self.pd.as_dict())
-        return merged
-
-
-# init
-if not hasattr(app.state, "ttft_store"):
-    app.state.ttft_store: dict[str, TTFTStoreEntry] = {}
-
-
-def _canonical_rid(rid: str) -> str:
-    if rid and rid.startswith("chatcmpl-"):
-        return rid[len("chatcmpl-") :]
-    return rid
-
-
-def is_complete(result: dict) -> bool:
-    combined = result.get("combined", {})
-    return all(
-        combined.get(k) is not None
-        for k in (
-            "enc_queue_time_ms",
-            "enc_compute_time_ms",
-            "emb_cache_transfer_time_ms",
-            "prefill_queue_time_ms",
-            "prefill_compute_time_ms",
-        )
-    )
-
-
-@app.post("/ttft_report")
-async def ttft_report(request: Request):
-    body = await request.json()
-    role = body.get("role")  # "encoder" | "pd" | "meta"
-    rid = body.get("request_id")
-    if role not in ("meta", "encoder", "pd") or not rid:
-        raise HTTPException(status_code=400, detail="role or request_id missing")
-    cano = _canonical_rid(rid)
-    store = app.state.ttft_store
-    entry = store.get(cano)
-    if entry is None:
-        entry = TTFTStoreEntry()
-        store[cano] = entry
-
-    entry.merge(role, body)
-
-    combined = entry.combined().as_dict()
-    result = {"request_id": cano, "combined": combined}
-    if is_complete(result):
-        logger.info("[TTFT] report update for %s: %s", cano, result)
-    return JSONResponse(result)
-
-
-@app.get("/ttft_report/{request_id}")
-async def ttft_get(request_id: str):
-    entry = app.state.ttft_store.get(request_id)
-    if not entry:
-        raise HTTPException(status_code=404, detail="not found")
-    return {
-        "request_id": request_id,
-        "by_role": {
-            "meta": entry.meta.as_dict(),
-            "encoder": entry.encoder.as_dict(),
-            "pd": entry.pd.as_dict(),
-        },
-        "combined": entry.combined().as_dict(),
-    }
 
 
 if __name__ == "__main__":
