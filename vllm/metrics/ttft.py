@@ -18,86 +18,86 @@ _MS_BUCKETS = build_1_2_5_buckets(5000)
 TTFT_ENC_QUEUE = Histogram(
     "vllm_ttft_enc_queue_ms",
     "Encoder queue latency (ms)",
-    ["model", "engine_id", "mm"],
+    ["model", "instance_id", "mm"],
     buckets=_MS_BUCKETS,
 )
 TTFT_ENC_COMPUTE = Histogram(
     "vllm_ttft_enc_compute_ms",
     "Encoder compute latency (ms)",
-    ["model", "engine_id", "mm"],
+    ["model", "instance_id", "mm"],
     buckets=_MS_BUCKETS,
 )
 TTFT_EMB_CACHE_TRANSFER = Histogram(
     "vllm_ttft_emb_cache_transfer_ms",
     "Embedding/encoder cache transfer latency (ms)",
-    ["model", "engine_id", "mm"],
+    ["model", "instance_id", "mm"],
     buckets=_MS_BUCKETS,
 )
 TTFT_PREFILL_QUEUE = Histogram(
     "vllm_ttft_prefill_queue_ms",
     "Prefill queue latency (ms)",
-    ["model", "engine_id", "mm"],
+    ["model", "instance_id", "mm"],
     buckets=_MS_BUCKETS,
 )
 TTFT_PREFILL_COMPUTE = Histogram(
     "vllm_ttft_prefill_compute_ms",
     "Prefill compute latency to first token (ms)",
-    ["model", "engine_id", "mm"],
+    ["model", "instance_id", "mm"],
     buckets=_MS_BUCKETS,
 )
 TTFT_TOTAL = Histogram(
     "vllm_ttft_total_ms",
     "TTFT (sum of stages) (ms)",
-    ["model", "engine_id", "mm"],
+    ["model", "instance_id", "mm"],
     buckets=_MS_BUCKETS,
 )
 
 
-def _labels(model_name: str, engine_id: Optional[str], is_mm: bool):
+def _labels(model_name: str, instance_id: Optional[str], is_mm: bool):
     return {
         "model": model_name,
-        "engine_id": engine_id or "na",
+        "instance_id": instance_id or "na",
         "mm": "yes" if is_mm else "no"
     }
 
 
-def observe_enc_queue(ms: float, model_name: str, engine_id: Optional[str],
+def observe_enc_queue(ms: float, model_name: str, instance_id: Optional[str],
                       is_mm: bool):
     if TTFT_ENABLED and ms is not None:
         TTFT_ENC_QUEUE.labels(
-            **_labels(model_name, engine_id, is_mm)).observe(ms)
+            **_labels(model_name, instance_id, is_mm)).observe(ms)
 
 
-def observe_enc_compute(ms: float, model_name: str, engine_id: Optional[str],
+def observe_enc_compute(ms: float, model_name: str, instance_id: Optional[str],
                         is_mm: bool):
     if TTFT_ENABLED and ms is not None:
         TTFT_ENC_COMPUTE.labels(
-            **_labels(model_name, engine_id, is_mm)).observe(ms)
+            **_labels(model_name, instance_id, is_mm)).observe(ms)
 
 
 def observe_emb_cache_transfer(ms: float, model_name: str,
-                               engine_id: Optional[str], is_mm: bool):
+                               instance_id: Optional[str], is_mm: bool):
     if TTFT_ENABLED and ms is not None:
         TTFT_EMB_CACHE_TRANSFER.labels(
-            **_labels(model_name, engine_id, is_mm)).observe(ms)
+            **_labels(model_name, instance_id, is_mm)).observe(ms)
 
 
-def observe_prefill_queue(ms: float, model_name: str, engine_id: Optional[str],
-                          is_mm: bool):
+def observe_prefill_queue(ms: float, model_name: str,
+                          instance_id: Optional[str], is_mm: bool):
     if TTFT_ENABLED and ms is not None:
         TTFT_PREFILL_QUEUE.labels(
-            **_labels(model_name, engine_id, is_mm)).observe(ms)
+            **_labels(model_name, instance_id, is_mm)).observe(ms)
 
 
 def observe_prefill_compute(ms: float, model_name: str,
-                            engine_id: Optional[str], is_mm: bool):
+                            instance_id: Optional[str], is_mm: bool):
     if TTFT_ENABLED and ms is not None:
         TTFT_PREFILL_COMPUTE.labels(
-            **_labels(model_name, engine_id, is_mm)).observe(ms)
+            **_labels(model_name, instance_id, is_mm)).observe(ms)
 
 
-def observe_total(ttft_ms: float, model_name: str, engine_id: Optional[str],
+def observe_total(ttft_ms: float, model_name: str, instance_id: Optional[str],
                   is_mm: bool):
     if TTFT_ENABLED and ttft_ms is not None:
         TTFT_TOTAL.labels(
-            **_labels(model_name, engine_id, is_mm)).observe(ttft_ms)
+            **_labels(model_name, instance_id, is_mm)).observe(ttft_ms)
