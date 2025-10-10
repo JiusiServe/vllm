@@ -9,7 +9,7 @@ from prometheus_client import Histogram
 
 from vllm.v1.metrics.loggers import build_1_2_5_buckets
 
-TTFT_ENABLED = os.getenv("TTFT_ENABLED", "0") == "1"
+TTFT_ENABLED = os.environ.get("TTFT_ENABLED", "0")
 
 # ms 直方图桶
 _MS_BUCKETS = build_1_2_5_buckets(5000)

@@ -439,26 +439,25 @@ class Scheduler(SchedulerInterface):
 
                     # Schedule encoder inputs.
                     if request.has_encoder_inputs:
+                        # encoder inputs arrive: enc_queue_start
+                        if self.TTFT_ENABLED and request.request_id \
+                            not in self._ttft_enc_queue_start:
+                            self._ttft_enc_queue_start[
+                                request.request_id] = time.perf_counter()
                         (encoder_inputs_to_schedule, num_new_tokens,
                          new_encoder_budget, external_load_encoder_input
                          ) = self._try_schedule_encoder_inputs(
                              request, num_computed_tokens, num_new_tokens,
                              encoder_budget)
                         if self.TTFT_ENABLED:
-                            # If need schedule encoder inputs: enc_queue_start
-                            if request.request_id not in \
-                                self._ttft_enc_queue_start and \
-                                    encoder_inputs_to_schedule:
-                                self._ttft_enc_queue_start[
-                                    request.request_id] = time.perf_counter()
-
                             # If need schedule encoder
                             # inputs and already start: enc_queue_end
                             if request.request_id in \
                                 self._ttft_enc_queue_start and \
                                     request.request_id not in \
                                         self._ttft_enc_queue_report and \
-                                            encoder_inputs_to_schedule:
+                                            (encoder_inputs_to_schedule or \
+                                             external_load_encoder_input):
                                 t_start_queue = self._ttft_enc_queue_start[
                                     request.request_id]
                                 enc_queue_ms = (time.perf_counter() -
@@ -488,6 +487,7 @@ class Scheduler(SchedulerInterface):
                             # The request cannot be scheduled.
                             break
                     else:
+                        # only text
                         if self.TTFT_ENABLED and request.request_id not in \
                             self._ttft_prefill_queue_start:
                             self._ttft_prefill_queue_start[
