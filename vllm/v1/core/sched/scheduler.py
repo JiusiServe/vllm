@@ -171,8 +171,8 @@ class Scheduler(SchedulerInterface):
             enable_kv_cache_events=self.enable_kv_cache_events,
         )
 
-        # TTFT
-        self.TTFT_ENABLED = os.environ.get("TTFT_ENABLED", "0")
+        self.TTFT_ENABLED = os.environ.get("TTFT_ENABLED",
+                                           "0").lower() in ("1", "true", "yes")
         if self.TTFT_ENABLED:
             self._ttft_enc_queue_start: dict[str, float] = {}
             self._ttft_enc_queue_report: set[str] = set()
