@@ -329,7 +329,8 @@ class Scheduler(SchedulerInterface):
                 for i in encoder_inputs_to_schedule:
                     self.encoder_cache_manager.allocate(request, i)
                 encoder_budget = new_encoder_budget
-            if (self.ec_connector is not None and external_load_encoder_input):
+            if (self.ec_connector is not None and request.has_encoder_inputs
+                    and external_load_encoder_input):
                 for i in external_load_encoder_input:
                     self.encoder_cache_manager.allocate(request, i)
                     self.ec_connector.update_state_after_alloc(request, i)
@@ -597,6 +598,7 @@ class Scheduler(SchedulerInterface):
                     encoder_budget = new_encoder_budget
                 # Allocate for external load encoder cache
                 if (self.ec_connector is not None
+                        and request.has_encoder_inputs
                         and external_load_encoder_input):
                     for i in external_load_encoder_input:
                         self.encoder_cache_manager.allocate(request, i)
@@ -927,6 +929,8 @@ class Scheduler(SchedulerInterface):
                 if stopped:
                     kv_transfer_params = self._free_request(request)
                     del new_token_ids[num_new:]  # Trim new tokens if needed.
+                    if self.ec_connector is not None:
+                        self.ec_connector.clean_caches(request)
                     break
 
             # Extract sample logprobs if needed.
