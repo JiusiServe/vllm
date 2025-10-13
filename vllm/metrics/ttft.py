@@ -81,8 +81,8 @@ def observe_enc_compute(ms: float, model_name: str, ec_role: Optional[str],
             **_labels(model_name, ec_role, is_mm)).observe(ms)
 
 
-def observe_emb_cache_transfer(ms: float, model_name: str,
-                               ec_role: Optional[str], is_mm: bool):
+def observe_e_cache_transfer(ms: float, model_name: str,
+                             ec_role: Optional[str], is_mm: bool):
     if TTFT_ENABLED and ms is not None:
         TTFT_E_CACHE_TRANSFER.labels(
             **_labels(model_name, ec_role, is_mm)).observe(ms)
