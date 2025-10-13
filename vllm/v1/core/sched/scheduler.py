@@ -178,6 +178,7 @@ class Scheduler(SchedulerInterface):
             self._ttft_enc_queue_report: set[str] = set()
             self._ttft_prefill_queue_start: dict[str, float] = {}
             self._ttft_prefill_queue_report: set[str] = set()
+            self.ec_role: str = self.vllm_config.ec_transfer_config.ec_role
 
     def schedule(self) -> SchedulerOutput:
         # NOTE(woosuk) on the scheduling algorithm:
@@ -464,13 +465,13 @@ class Scheduler(SchedulerInterface):
                                 enc_queue_ms = (time.perf_counter() -
                                                 t_start_queue) * 1000
                                 with suppress(Exception):
-                                    model_name = self.vllm_config.\
-                                        model_config.model
-                                    instance_id = getattr(
-                                        self.vllm_config, "instance_id", None)
-                                    is_mm = request.has_encoder_inputs
-                                    observe_enc_queue(enc_queue_ms, model_name,
-                                                      instance_id, is_mm)
+                                    if self.ec_role == "ec_producer":
+                                        model_name = self.vllm_config.\
+                                            model_config.model
+                                        is_mm = request.has_encoder_inputs
+                                        observe_enc_queue(
+                                            enc_queue_ms, model_name,
+                                            self.ec_role, is_mm)
                                 self._ttft_enc_queue_report.add(
                                     request.request_id)
 
@@ -506,14 +507,13 @@ class Scheduler(SchedulerInterface):
                                 prefill_queue_ms = (time.perf_counter() -
                                                     t_start_queue) * 1000
                                 with suppress(Exception):
-                                    model_name = self.vllm_config.\
-                                        model_config.model
-                                    instance_id = getattr(
-                                        self.vllm_config, "instance_id", None)
-                                    is_mm = request.has_encoder_inputs
-                                    observe_prefill_queue(
-                                        prefill_queue_ms, model_name,
-                                        instance_id, is_mm)
+                                    if self.ec_role == "ec_consumer":
+                                        model_name = self.vllm_config.\
+                                            model_config.model
+                                        is_mm = request.has_encoder_inputs
+                                        observe_prefill_queue(
+                                            prefill_queue_ms, model_name,
+                                            self.ec_role, is_mm)
                                 self._ttft_prefill_queue_report.add(
                                     request.request_id)
                         elif num_new_tokens > 0 and request.request_id \
@@ -521,12 +521,12 @@ class Scheduler(SchedulerInterface):
                             # If need to process encoder and prefill
                             # at the same time prefill_queue_time_ms = 0
                             with suppress(Exception):
-                                model_name = self.vllm_config.model_config.model
-                                instance_id = getattr(self.vllm_config,
-                                                      "instance_id", None)
-                                is_mm = request.has_encoder_inputs
-                                observe_prefill_queue(0.0, model_name,
-                                                      instance_id, is_mm)
+                                if self.ec_role == "ec_consumer":
+                                    model_name = self.vllm_config.\
+                                        model_config.model
+                                    is_mm = request.has_encoder_inputs
+                                    observe_prefill_queue(
+                                        0.0, model_name, self.ec_role, is_mm)
                             self._ttft_prefill_queue_report.add(
                                 request.request_id)
 
