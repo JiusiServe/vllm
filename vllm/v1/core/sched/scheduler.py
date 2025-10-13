@@ -20,7 +20,7 @@ from vllm.distributed.kv_transfer.kv_connector.factory import (
 from vllm.distributed.kv_transfer.kv_connector.v1 import (KVConnectorBase_V1,
                                                           KVConnectorRole)
 from vllm.logger import init_logger
-from vllm.metrics.ttft import observe_enc_queue, observe_prefill_queue
+from vllm.metrics.ttft import observe_enc_queue
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.v1.core.encoder_cache_manager import (EncoderCacheManager,
                                                 compute_encoder_budget)
@@ -419,7 +419,7 @@ class Scheduler(SchedulerInterface):
                     num_computed_tokens = request.num_computed_tokens
 
                 encoder_inputs_to_schedule = None
-                external_load_encoder_input = []
+                external_load_encoder_input: list[int] = []
                 new_encoder_budget = encoder_budget
 
                 # KVTransfer: loading remote KV, do not allocate for new work.
@@ -451,84 +451,29 @@ class Scheduler(SchedulerInterface):
                          ) = self._try_schedule_encoder_inputs(
                              request, num_computed_tokens, num_new_tokens,
                              encoder_budget)
-                        if self.TTFT_ENABLED:
-                            # If need schedule encoder
-                            # inputs and already start: enc_queue_end
-                            if request.request_id in \
-                                self._ttft_enc_queue_start and \
-                                    request.request_id not in \
-                                        self._ttft_enc_queue_report and \
-                                            (encoder_inputs_to_schedule or \
-                                             external_load_encoder_input):
-                                t_start_queue = self._ttft_enc_queue_start[
-                                    request.request_id]
-                                enc_queue_ms = (time.perf_counter() -
-                                                t_start_queue) * 1000
-                                with suppress(Exception):
-                                    if self.ec_role == "ec_producer":
-                                        model_name = self.vllm_config.\
-                                            model_config.model
-                                        is_mm = request.has_encoder_inputs
-                                        observe_enc_queue(
-                                            enc_queue_ms, model_name,
-                                            self.ec_role, is_mm)
-                                self._ttft_enc_queue_report.add(
-                                    request.request_id)
-
-                            # If no need schedule encoder inputs:
-                            # prefill_queue_start
-                            no_more_encoder_work = not \
-                                encoder_inputs_to_schedule and not \
-                                    external_load_encoder_input
-                            if no_more_encoder_work and request.request_id \
-                                not in self._ttft_prefill_queue_start:
-                                self._ttft_prefill_queue_start[
-                                    request.request_id] = time.perf_counter()
-
+                        # If need schedule encoder
+                        # inputs and already start: enc_queue_end
+                        if self.TTFT_ENABLED and request.request_id in \
+                            self._ttft_enc_queue_start and \
+                                request.request_id not in \
+                                    self._ttft_enc_queue_report and \
+                                        (encoder_inputs_to_schedule or \
+                                            external_load_encoder_input):
+                            t_start_queue = self._ttft_enc_queue_start[
+                                request.request_id]
+                            enc_queue_ms = (time.perf_counter() -
+                                            t_start_queue) * 1000
+                            with suppress(Exception):
+                                if self.ec_role == "ec_producer":
+                                    model_name = self.vllm_config.\
+                                        model_config.model
+                                    is_mm = bool(request.has_encoder_inputs)
+                                    observe_enc_queue(enc_queue_ms, model_name,
+                                                      self.ec_role, is_mm)
+                            self._ttft_enc_queue_report.add(request.request_id)
                         if num_new_tokens == 0:
                             # The request cannot be scheduled.
                             break
-                    else:
-                        # only text
-                        if self.TTFT_ENABLED and request.request_id not in \
-                            self._ttft_prefill_queue_start:
-                            self._ttft_prefill_queue_start[
-                                request.request_id] = time.perf_counter()
-                    if self.TTFT_ENABLED:
-                        # allocate num_new_tokens for this
-                        # request for the first time
-                        if request.request_id in \
-                            self._ttft_prefill_queue_start:
-                            if request.request_id not in \
-                                self._ttft_prefill_queue_report \
-                                    and num_new_tokens > 0:
-                                t_start_queue = self._ttft_prefill_queue_start[
-                                    request.request_id]
-                                prefill_queue_ms = (time.perf_counter() -
-                                                    t_start_queue) * 1000
-                                with suppress(Exception):
-                                    if self.ec_role == "ec_consumer":
-                                        model_name = self.vllm_config.\
-                                            model_config.model
-                                        is_mm = request.has_encoder_inputs
-                                        observe_prefill_queue(
-                                            prefill_queue_ms, model_name,
-                                            self.ec_role, is_mm)
-                                self._ttft_prefill_queue_report.add(
-                                    request.request_id)
-                        elif num_new_tokens > 0 and request.request_id \
-                            not in self._ttft_prefill_queue_report:
-                            # If need to process encoder and prefill
-                            # at the same time prefill_queue_time_ms = 0
-                            with suppress(Exception):
-                                if self.ec_role == "ec_consumer":
-                                    model_name = self.vllm_config.\
-                                        model_config.model
-                                    is_mm = request.has_encoder_inputs
-                                    observe_prefill_queue(
-                                        0.0, model_name, self.ec_role, is_mm)
-                            self._ttft_prefill_queue_report.add(
-                                request.request_id)
 
                 new_blocks = self.kv_cache_manager.allocate_slots(
                     request,
@@ -793,7 +738,7 @@ class Scheduler(SchedulerInterface):
         mm_positions = request.mm_positions
         assert mm_positions is not None
         assert len(mm_positions) > 0
-        external_load_encoder_input = []
+        external_load_encoder_input: list[int] = []
 
         for i, pos_info in enumerate(mm_positions):
             start_pos = pos_info.offset
