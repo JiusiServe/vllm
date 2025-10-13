@@ -19,9 +19,17 @@ EXCEPT_ERRORS = (
 
 
 class ServerScheduler:
-    def __init__(self, instances, server_type, strategy: str = "random"):
+    def __init__(
+        self,
+        instances,
+        server_type,
+        health_check_interval: int = 5,
+        health_threshold: int = 3,
+        strategy: str = "random",
+    ):
         self.instances: list[ServerState] = [
-            ServerState(url, server_type) for url in instances.split(",")
+            ServerState(url, server_type, health_check_interval, health_threshold)
+            for url in instances.split(",")
         ]
         self.server_type = server_type
         self.strategy_map = {
@@ -36,6 +44,11 @@ class ServerScheduler:
                 f"Unknown strategy: {strategy}. Available strategies: {valid}"
             )
         self.select_instance = self.strategy_map[strategy]
+        logger.info(
+            "Using {%s} strategy for {%s} server scheduling.",
+            strategy,
+            self.server_type,
+        )
         self.round_robin_indx = 0
 
     async def stream_retry_wrap(
@@ -97,11 +110,16 @@ class ServerScheduler:
         )
         return result
 
-    async def healthy_check(self):
-        tasks = [asyncio.create_task(ins.healthy_check()) for ins in self.instances]
-        await asyncio.gather(*tasks, return_exceptions=True)
+    async def healthy_check(self, use_threshold: bool = True):
+        tasks = [
+            asyncio.create_task(ins.healthy_check(use_threshold))
+            for ins in self.instances
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        unhealthy_url = [ins.url for ins in self.instances if not ins.is_healthy]
+        unhealthy_url = [
+            ins.url for ins, healthy in zip(self.instances, results) if not healthy
+        ]
         return unhealthy_url
 
     async def stop_instances(self):
