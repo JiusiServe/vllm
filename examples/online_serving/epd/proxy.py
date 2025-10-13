@@ -4,6 +4,7 @@
 import argparse
 import asyncio
 import logging
+import time
 import uuid
 from collections.abc import AsyncIterator
 
@@ -13,6 +14,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from instance import ServerType
 from scheduler import ServerScheduler
+
+from vllm.metrics.ttft import (
+    TTFT_ENABLED,
+    observe_proxy_transfer_to_encode,
+    observe_proxy_transfer_to_pd,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,7 +75,19 @@ async def forward_streaming_request(
             tried_instances.add(e_instance)
             await e_instance.forward_non_streaming_request(api, request_data, headers)
 
+        if TTFT_ENABLED:
+            tranf_E_s: float = time.perf_counter()
         await app.state.e_scheduler.non_stream_retry_wrap(non_stream_call)
+        if TTFT_ENABLED:
+            tranf_E_e: float = time.perf_counter()
+            model_name = "Unknown"
+            is_mm = True
+            observe_proxy_transfer_to_encode(
+                (tranf_E_e - tranf_E_s) * 1000,  # type: ignore
+                model_name,
+                None,
+                is_mm,
+            )
 
     async def stream_call(tried_instances):
         pd_instance = await app.state.pd_scheduler.select_instance(
@@ -80,7 +99,19 @@ async def forward_streaming_request(
         ):
             yield chunk
 
+    if TTFT_ENABLED:
+        tranf_PD_s: float = time.perf_counter()
     async for chunk in app.state.pd_scheduler.stream_retry_wrap(stream_call):
+        if TTFT_ENABLED:
+            tranf_PD_e: float = time.perf_counter()
+            model_name = "Unknown"
+            is_mm = True
+            observe_proxy_transfer_to_pd(
+                (tranf_PD_e - tranf_PD_s) * 1000,  # type: ignore
+                model_name,
+                None,
+                is_mm,
+            )
         yield chunk
 
 
