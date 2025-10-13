@@ -27,9 +27,9 @@ TTFT_ENC_COMPUTE = Histogram(
     ["model", "instance_id", "mm"],
     buckets=_MS_BUCKETS,
 )
-TTFT_EMB_CACHE_TRANSFER = Histogram(
-    "vllm_ttft_emb_cache_transfer_ms",
-    "Embedding/encoder cache transfer latency (ms)",
+TTFT_E_CACHE_TRANSFER = Histogram(
+    "vllm_E_cache_transfer_to_PD_ms",
+    "Encoder cache transfer latency (ms)",
     ["model", "instance_id", "mm"],
     buckets=_MS_BUCKETS,
 )
@@ -45,9 +45,15 @@ TTFT_PREFILL_COMPUTE = Histogram(
     ["model", "instance_id", "mm"],
     buckets=_MS_BUCKETS,
 )
-TTFT_TOTAL = Histogram(
-    "vllm_ttft_total_ms",
-    "TTFT (sum of stages) (ms)",
+TTFT_PROXY_TRANSFER_TO_ENCODE = Histogram(
+    "vllm_proxy_transfer_to_encode_ms",
+    "proxy transfer to encode latency (ms)",
+    ["model", "instance_id", "mm"],
+    buckets=_MS_BUCKETS,
+)
+TTFT_PROXY_TRANSFER_TO_PD = Histogram(
+    "vllm_proxy_transfer_to_pd_ms",
+    "proxy transfer to pd latency (ms)",
     ["model", "instance_id", "mm"],
     buckets=_MS_BUCKETS,
 )
@@ -78,7 +84,7 @@ def observe_enc_compute(ms: float, model_name: str, instance_id: Optional[str],
 def observe_emb_cache_transfer(ms: float, model_name: str,
                                instance_id: Optional[str], is_mm: bool):
     if TTFT_ENABLED and ms is not None:
-        TTFT_EMB_CACHE_TRANSFER.labels(
+        TTFT_E_CACHE_TRANSFER.labels(
             **_labels(model_name, instance_id, is_mm)).observe(ms)
 
 
@@ -96,8 +102,15 @@ def observe_prefill_compute(ms: float, model_name: str,
             **_labels(model_name, instance_id, is_mm)).observe(ms)
 
 
-def observe_total(ttft_ms: float, model_name: str, instance_id: Optional[str],
-                  is_mm: bool):
-    if TTFT_ENABLED and ttft_ms is not None:
-        TTFT_TOTAL.labels(
-            **_labels(model_name, instance_id, is_mm)).observe(ttft_ms)
+def observe_proxy_transfer_to_encode(ms: float, model_name: str,
+                                     instance_id: Optional[str], is_mm: bool):
+    if TTFT_ENABLED and ms is not None:
+        TTFT_PROXY_TRANSFER_TO_ENCODE.labels(
+            **_labels(model_name, instance_id, is_mm)).observe(ms)
+
+
+def observe_proxy_transfer_to_pd(ms: float, model_name: str,
+                                 instance_id: Optional[str], is_mm: bool):
+    if TTFT_ENABLED and ms is not None:
+        TTFT_PROXY_TRANSFER_TO_PD.labels(
+            **_labels(model_name, instance_id, is_mm)).observe(ms)

@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import asyncio
 import os
+import time
 import uuid
 from collections.abc import AsyncGenerator, Mapping
 from typing import Optional, Union
@@ -21,6 +22,8 @@ from vllm.inputs.data import PromptType
 from vllm.inputs.preprocess import InputPreprocessor
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
+from vllm.metrics.ttft import (TTFT_ENABLED, observe_proxy_transfer_to_encode,
+                               observe_proxy_transfer_to_pd)
 from vllm.outputs import CompletionOutput, PoolingRequestOutput, RequestOutput
 from vllm.pooling_params import PoolingParams
 from vllm.prompt_adapter.request import PromptAdapterRequest
@@ -122,7 +125,19 @@ class Proxy(EngineClient):
         idx = (hash(request.request_id) & 0x7FFFFFFF) % len(
             self.to_encode_sockets)
         socket = self.to_encode_sockets[idx]
+        if TTFT_ENABLED:
+            tranf_E_s: float = time.perf_counter()
         await socket.send_multipart(msg, copy=False)
+        if TTFT_ENABLED:
+            tranf_E_e: float = time.perf_counter()
+            model_name = self.model_config.model
+            instance_id = getattr(self.model_config, "instance_id", None)
+            is_mm = request.has_encoder_inputs
+            observe_proxy_transfer_to_encode(
+                (tranf_E_e - tranf_E_s) * 1000,  # type: ignore
+                model_name,
+                instance_id,
+                is_mm)
 
         response = await q.get()
         logger.info("Encode response: %s", response)
@@ -150,7 +165,19 @@ class Proxy(EngineClient):
         msg = (RequestType.GENERATION, payload)
         idx = (hash(request.request_id) & 0x7FFFFFFF) % len(self.to_pd_sockets)
         socket = self.to_pd_sockets[idx]
+        if TTFT_ENABLED:
+            tranf_PD_s: float = time.perf_counter()
         await socket.send_multipart(msg, copy=False)
+        if TTFT_ENABLED:
+            tranf_PD_e: float = time.perf_counter()
+            model_name = self.model_config.model
+            instance_id = getattr(self.model_config, "instance_id", None)
+            is_mm = request.has_encoder_inputs
+            observe_proxy_transfer_to_pd(
+                (tranf_PD_e - tranf_PD_s) * 1000,  # type: ignore
+                model_name,
+                instance_id,
+                is_mm)
 
         finished = False
         while not finished:
