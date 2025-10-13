@@ -9,6 +9,7 @@ import zmq
 import zmq.asyncio
 
 from vllm.disaggregated.protocol import (GenerationRequest, GenerationResponse,
+                                         HeartbeatRequest, HeartbeatResponse,
                                          RequestType, ResponseType)
 from vllm.engine.protocol import EngineClient
 from vllm.logger import init_logger
@@ -35,6 +36,7 @@ class DisaggWorker:
         self.to_proxy.connect(self.proxy_addr)
 
         self.decoder_generate = msgspec.msgpack.Decoder(GenerationRequest)
+        self.decoder_heartbeat = msgspec.msgpack.Decoder(HeartbeatRequest)
         self.decoder_abort = msgspec.msgpack.Decoder(GenerationRequest)
         self.encoder = msgspec.msgpack.Encoder()
 
@@ -71,6 +73,9 @@ class DisaggWorker:
         elif req_type == RequestType.ABORT:
             req = self.decoder_abort.decode(req_data)
             await self._abort_handler(req)
+        elif req_type == RequestType.HEARTBEAT:
+            req = self.decoder_heartbeat.decode(req_data)
+            await self._heartbeat_handler(req)
         else:
             raise Exception(f"Unknown Request Type: {req_type}.")
 
@@ -88,6 +93,12 @@ class DisaggWorker:
 
     async def _abort_handler(self, req: GenerationRequest):
         self.engine.abort(request_id=req.request_id)
+
+    async def _heartbeat_handler(self, req: HeartbeatRequest):
+        msg = (ResponseType.HEARTBEAT,
+               self.encoder.encode(
+                   HeartbeatResponse(request_id=req.request_id, status="OK")))
+        await self.to_proxy.send_multipart(msg, copy=False)
 
     async def _generate(
         self,
