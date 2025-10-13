@@ -239,7 +239,7 @@ class Scheduler(SchedulerInterface):
 
             # Schedule encoder inputs.
             encoder_inputs_to_schedule = None
-            external_load_encoder_input = []
+            external_load_encoder_input: list[int] = []
             new_encoder_budget = encoder_budget
             if request.has_encoder_inputs:
                 (encoder_inputs_to_schedule, num_new_tokens,
@@ -419,7 +419,6 @@ class Scheduler(SchedulerInterface):
                     num_computed_tokens = request.num_computed_tokens
 
                 encoder_inputs_to_schedule = None
-                external_load_encoder_input: list[int] = []
                 new_encoder_budget = encoder_budget
 
                 # KVTransfer: loading remote KV, do not allocate for new work.
