@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from instance import ServerType
 from scheduler import ServerScheduler
 
-from vllm.metrics.ttft import (
+from vllm.disaggregated.epd_timecount import (
     EPD_TIMECOUNT_ENABLED,
     observe_proxy_transfer_to_encode,
     observe_proxy_transfer_to_pd,
