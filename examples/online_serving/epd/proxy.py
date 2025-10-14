@@ -16,7 +16,7 @@ from instance import ServerType
 from scheduler import ServerScheduler
 
 from vllm.metrics.ttft import (
-    TTFT_ENABLED,
+    EPD_TIMECOUNT_ENABLED,
     observe_proxy_transfer_to_encode,
     observe_proxy_transfer_to_pd,
 )
@@ -75,15 +75,15 @@ async def forward_streaming_request(
             tried_instances.add(e_instance)
             await e_instance.forward_non_streaming_request(api, request_data, headers)
 
-        if TTFT_ENABLED:
+        if EPD_TIMECOUNT_ENABLED:
             tranf_E_s: float = time.perf_counter()
         await app.state.e_scheduler.non_stream_retry_wrap(non_stream_call)
-        if TTFT_ENABLED:
+        if EPD_TIMECOUNT_ENABLED:
             tranf_E_e: float = time.perf_counter()
             model_name = "Unknown"
             is_mm = True
             observe_proxy_transfer_to_encode(
-                (tranf_E_e - tranf_E_s) * 1000,  # type: ignore
+                tranf_E_e - tranf_E_s,  # type: ignore
                 model_name,
                 None,
                 is_mm,
@@ -99,15 +99,15 @@ async def forward_streaming_request(
         ):
             yield chunk
 
-    if TTFT_ENABLED:
+    if EPD_TIMECOUNT_ENABLED:
         tranf_PD_s: float = time.perf_counter()
     async for chunk in app.state.pd_scheduler.stream_retry_wrap(stream_call):
-        if TTFT_ENABLED:
+        if EPD_TIMECOUNT_ENABLED:
             tranf_PD_e: float = time.perf_counter()
             model_name = "Unknown"
             is_mm = True
             observe_proxy_transfer_to_pd(
-                (tranf_PD_e - tranf_PD_s) * 1000,  # type: ignore
+                tranf_PD_e - tranf_PD_s,  # type: ignore
                 model_name,
                 None,
                 is_mm,

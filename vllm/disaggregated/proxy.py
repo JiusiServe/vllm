@@ -22,7 +22,7 @@ from vllm.inputs.data import PromptType
 from vllm.inputs.preprocess import InputPreprocessor
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
-from vllm.metrics.ttft import TTFT_ENABLED
+from vllm.metrics.ttft import EPD_TIMECOUNT_ENABLED
 from vllm.outputs import CompletionOutput, PoolingRequestOutput, RequestOutput
 from vllm.pooling_params import PoolingParams
 from vllm.prompt_adapter.request import PromptAdapterRequest
@@ -124,10 +124,10 @@ class Proxy(EngineClient):
         idx = (hash(request.request_id) & 0x7FFFFFFF) % len(
             self.to_encode_sockets)
         socket = self.to_encode_sockets[idx]
-        if TTFT_ENABLED:
+        if EPD_TIMECOUNT_ENABLED:
             tranf_E_s: float = time.perf_counter()
         await socket.send_multipart(msg, copy=False)
-        if TTFT_ENABLED:
+        if EPD_TIMECOUNT_ENABLED:
             tranf_E_e: float = time.perf_counter()
             print(f"proxy transfer to encode: {tranf_E_e - tranf_E_s}ms"
                   )  # type: ignore
@@ -158,10 +158,10 @@ class Proxy(EngineClient):
         msg = (RequestType.GENERATION, payload)
         idx = (hash(request.request_id) & 0x7FFFFFFF) % len(self.to_pd_sockets)
         socket = self.to_pd_sockets[idx]
-        if TTFT_ENABLED:
+        if EPD_TIMECOUNT_ENABLED:
             tranf_PD_s: float = time.perf_counter()
         await socket.send_multipart(msg, copy=False)
-        if TTFT_ENABLED:
+        if EPD_TIMECOUNT_ENABLED:
             tranf_PD_e: float = time.perf_counter()
             print(f"proxy transfer to pd: {tranf_PD_e - tranf_PD_s}ms"
                   )  # type: ignore

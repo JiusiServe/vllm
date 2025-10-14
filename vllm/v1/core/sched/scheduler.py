@@ -3,11 +3,9 @@
 
 from __future__ import annotations
 
-import os
 import time
 from collections import defaultdict, deque
 from collections.abc import Iterable
-from contextlib import suppress
 from typing import Any, Optional, Union
 
 from vllm.config import VllmConfig
@@ -20,7 +18,6 @@ from vllm.distributed.kv_transfer.kv_connector.factory import (
 from vllm.distributed.kv_transfer.kv_connector.v1 import (KVConnectorBase_V1,
                                                           KVConnectorRole)
 from vllm.logger import init_logger
-from vllm.metrics.ttft import observe_enc_queue
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.v1.core.encoder_cache_manager import (EncoderCacheManager,
                                                 compute_encoder_budget)
@@ -170,15 +167,6 @@ class Scheduler(SchedulerInterface):
             log_stats=self.log_stats,
             enable_kv_cache_events=self.enable_kv_cache_events,
         )
-
-        self.TTFT_ENABLED = os.environ.get("TTFT_ENABLED",
-                                           "0").lower() in ("1", "true", "yes")
-        if self.TTFT_ENABLED:
-            self._ttft_enc_queue_start: dict[str, float] = {}
-            self._ttft_enc_queue_report: set[str] = set()
-            self._ttft_prefill_queue_start: dict[str, float] = {}
-            self._ttft_prefill_queue_report: set[str] = set()
-            self.ec_role: str = self.vllm_config.ec_transfer_config.ec_role
 
     def schedule(self) -> SchedulerOutput:
         # NOTE(woosuk) on the scheduling algorithm:
@@ -440,36 +428,11 @@ class Scheduler(SchedulerInterface):
 
                     # Schedule encoder inputs.
                     if request.has_encoder_inputs:
-                        # encoder inputs arrive: enc_queue_start
-                        if self.TTFT_ENABLED and request.request_id \
-                            not in self._ttft_enc_queue_start:
-                            self._ttft_enc_queue_start[
-                                request.request_id] = time.perf_counter()
                         (encoder_inputs_to_schedule, num_new_tokens,
                          new_encoder_budget, external_load_encoder_input
                          ) = self._try_schedule_encoder_inputs(
                              request, num_computed_tokens, num_new_tokens,
                              encoder_budget)
-                        # If need schedule encoder
-                        # inputs and already start: enc_queue_end
-                        if self.TTFT_ENABLED and request.request_id in \
-                            self._ttft_enc_queue_start and \
-                                request.request_id not in \
-                                    self._ttft_enc_queue_report and \
-                                        (encoder_inputs_to_schedule or \
-                                            external_load_encoder_input):
-                            t_start_queue = self._ttft_enc_queue_start[
-                                request.request_id]
-                            enc_queue_ms = (time.perf_counter() -
-                                            t_start_queue) * 1000
-                            with suppress(Exception):
-                                if self.ec_role == "ec_producer":
-                                    model_name = self.vllm_config.\
-                                        model_config.model
-                                    is_mm = bool(request.has_encoder_inputs)
-                                    observe_enc_queue(enc_queue_ms, model_name,
-                                                      self.ec_role, is_mm)
-                            self._ttft_enc_queue_report.add(request.request_id)
                         if num_new_tokens == 0:
                             # The request cannot be scheduled.
                             break
