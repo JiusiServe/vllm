@@ -46,7 +46,7 @@ fi
 # Encoder worker
 ###############################################################################
 export PROMETHEUS_MULTIPROC_DIR="/path/to/your/prometheus/multiproc/Encoder_dir"
-rm -rf "$PROMETHEUS_MULTIPROC_DIR/*"
+rm -rf "$PROMETHEUS_MULTIPROC_DIR" && mkdir -p "$PROMETHEUS_MULTIPROC_DIR"
 CUDA_VISIBLE_DEVICES="$GPU_E" vllm serve "$MODEL" \
     --gpu-memory-utilization 0.0 \
     --port "$ENCODE_PORT" \
@@ -70,7 +70,7 @@ echo $! >> "$PID_FILE"
 # Prefill / decode worker
 ###############################################################################
 export PROMETHEUS_MULTIPROC_DIR="/path/to/your/prometheus/multiproc/PD_dir"
-rm -rf "$PROMETHEUS_MULTIPROC_DIR/*"
+rm -rf "$PROMETHEUS_MULTIPROC_DIR" && mkdir -p "$PROMETHEUS_MULTIPROC_DIR"
 CUDA_VISIBLE_DEVICES="$GPU_PD" vllm serve "$MODEL" \
     --gpu-memory-utilization 0.7 \
     --port "$PREFILL_DECODE_PORT" \

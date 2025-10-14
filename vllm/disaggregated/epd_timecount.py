@@ -72,40 +72,36 @@ def _labels(model_name: str, ec_role: Optional[str], is_mm: bool):
     }
 
 
-def observe_enc_compute(
-    seconds: float, model_name: str, ec_role: Optional[str], is_mm: bool
-):
+def observe_enc_compute(seconds: float, model_name: str,
+                        ec_role: Optional[str], is_mm: bool):
     if EPD_TIMECOUNT_ENABLED and seconds is not None:
-        ENC_COMPUTE.labels(**_labels(model_name, ec_role, is_mm)).observe(seconds)
+        ENC_COMPUTE.labels(
+            **_labels(model_name, ec_role, is_mm)).observe(seconds)
 
 
-def observe_load_e_cache(
-    seconds: float, model_name: str, ec_role: Optional[str], is_mm: bool
-):
+def observe_load_e_cache(seconds: float, model_name: str,
+                         ec_role: Optional[str], is_mm: bool):
     if EPD_TIMECOUNT_ENABLED and seconds is not None:
-        LOAD_E_CACHE.labels(**_labels(model_name, ec_role, is_mm)).observe(seconds)
+        LOAD_E_CACHE.labels(
+            **_labels(model_name, ec_role, is_mm)).observe(seconds)
 
 
-def observe_prefill_compute(
-    seconds: float, model_name: str, ec_role: Optional[str], is_mm: bool
-):
+def observe_prefill_compute(seconds: float, model_name: str,
+                            ec_role: Optional[str], is_mm: bool):
     if EPD_TIMECOUNT_ENABLED and seconds is not None:
-        PREFILL_FORWARD.labels(**_labels(model_name, ec_role, is_mm)).observe(seconds)
+        PREFILL_FORWARD.labels(
+            **_labels(model_name, ec_role, is_mm)).observe(seconds)
 
 
-def observe_proxy_transfer_to_encode(
-    seconds: float, model_name: str, ec_role: Optional[str], is_mm: bool
-):
+def observe_proxy_transfer_to_encode(seconds: float, model_name: str,
+                                     ec_role: Optional[str], is_mm: bool):
     if EPD_TIMECOUNT_ENABLED and seconds is not None:
-        PROXY_TRANSFER_TO_ENCODE.labels(**_labels(model_name, ec_role, is_mm)).observe(
-            seconds
-        )
+        PROXY_TRANSFER_TO_ENCODE.labels(
+            **_labels(model_name, ec_role, is_mm)).observe(seconds)
 
 
-def observe_proxy_transfer_to_pd(
-    seconds: float, model_name: str, ec_role: Optional[str], is_mm: bool
-):
+def observe_proxy_transfer_to_pd(seconds: float, model_name: str,
+                                 ec_role: Optional[str], is_mm: bool):
     if EPD_TIMECOUNT_ENABLED and seconds is not None:
-        PROXY_TRANSFER_TO_PD.labels(**_labels(model_name, ec_role, is_mm)).observe(
-            seconds
-        )
+        PROXY_TRANSFER_TO_PD.labels(
+            **_labels(model_name, ec_role, is_mm)).observe(seconds)
