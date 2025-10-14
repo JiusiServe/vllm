@@ -131,7 +131,19 @@ async def forward_non_streaming_request(
             tried_instances.add(e_instance)
             await e_instance.forward_non_streaming_request(api, request_data, headers)
 
+        if EPD_TIMECOUNT_ENABLED:
+            tranf_E_s: float = time.perf_counter()
         await app.state.e_scheduler.non_stream_retry_wrap(e_non_stream_call)
+        if EPD_TIMECOUNT_ENABLED:
+            tranf_E_e: float = time.perf_counter()
+            model_name = "Unknown"
+            is_mm = True
+            observe_proxy_transfer_to_encode(
+                tranf_E_e - tranf_E_s,  # type: ignore
+                model_name,
+                None,
+                is_mm,
+            )
 
     async def pd_non_stream_call(tried_instances):
         pd_instance = await app.state.pd_scheduler.select_instance(
@@ -142,7 +154,20 @@ async def forward_non_streaming_request(
             api, request_data, headers
         )
 
-    return await app.state.pd_scheduler.non_stream_retry_wrap(pd_non_stream_call)
+    if EPD_TIMECOUNT_ENABLED:
+        tranf_PD_s: float = time.perf_counter()
+    result = await app.state.pd_scheduler.non_stream_retry_wrap(pd_non_stream_call)
+    if EPD_TIMECOUNT_ENABLED:
+        tranf_PD_e: float = time.perf_counter()
+        model_name = "Unknown"
+        is_mm = True
+        observe_proxy_transfer_to_pd(
+            tranf_PD_e - tranf_PD_s,  # type: ignore
+            model_name,
+            None,
+            is_mm,
+        )
+    return result
 
 
 async def _handle_completions(api: str, request: Request):
