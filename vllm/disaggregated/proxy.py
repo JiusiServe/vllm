@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import asyncio
 import os
+import random
 import uuid
 from collections.abc import AsyncGenerator, Mapping
 from typing import Optional, Union
@@ -119,8 +120,7 @@ class Proxy(EngineClient):
             raise RuntimeError("Failed to serialize GenerationRequest") from e
 
         msg = (RequestType.ENCODE, payload)
-        idx = (hash(request.request_id) & 0x7FFFFFFF) % len(
-            self.to_encode_sockets)
+        idx = random.randint(0, len(self.to_encode_sockets) - 1)
         socket = self.to_encode_sockets[idx]
         await socket.send_multipart(msg, copy=False)
 
@@ -148,7 +148,7 @@ class Proxy(EngineClient):
             raise RuntimeError("Failed to serialize GenerationRequest") from e
 
         msg = (RequestType.GENERATION, payload)
-        idx = (hash(request.request_id) & 0x7FFFFFFF) % len(self.to_pd_sockets)
+        idx = random.randint(0, len(self.to_pd_sockets) - 1)
         socket = self.to_pd_sockets[idx]
         await socket.send_multipart(msg, copy=False)
 
