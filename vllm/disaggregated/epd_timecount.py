@@ -35,31 +35,31 @@ _seconds_BUCKETS = [
 ENC_COMPUTE = Histogram(
     "vllm_execute_mm_encoder_seconds",
     "Encoder compute latency (seconds)",
-    ["model", "ec_role", "mm", "instance id"],
+    ["model", "ec_role", "mm", "instance_id"],
     buckets=_seconds_BUCKETS,
 )
 LOAD_E_CACHE = Histogram(
     "vllm_load_Encoder_cache_seconds",
     "Encoder cache transfer latency (seconds)",
-    ["model", "ec_role", "mm", "instance id"],
+    ["model", "ec_role", "mm", "instance_id"],
     buckets=_seconds_BUCKETS,
 )
 PREFILL_FORWARD = Histogram(
     "vllm_prefill_forward_seconds",
     "Prefill forward latency to first token (seconds)",
-    ["model", "ec_role", "mm", "instance id"],
+    ["model", "ec_role", "mm", "instance_id"],
     buckets=_seconds_BUCKETS,
 )
 PROXY_TRANSFER_TO_ENCODE = Histogram(
     "vllm_proxy_transfer_to_encode_seconds",
     "proxy transfer to encode latency (seconds)",
-    ["model", "ec_role", "mm", "instance id"],
+    ["model", "ec_role", "mm", "instance_id"],
     buckets=_seconds_BUCKETS,
 )
 PROXY_TRANSFER_TO_PD = Histogram(
     "vllm_proxy_transfer_to_pd_seconds",
     "proxy transfer to pd latency (seconds)",
-    ["model", "ec_role", "mm", "instance id"],
+    ["model", "ec_role", "mm", "instance_id"],
     buckets=_seconds_BUCKETS,
 )
 
@@ -70,7 +70,7 @@ def _labels(model_name: str, ec_role: Optional[str], is_mm: bool,
         "model": model_name,
         "ec_role": ec_role or "na",
         "mm": "yes" if is_mm else "no",
-        "instance id": instance_id or "na",
+        "instance_id": instance_id or "na",
     }
 
 
