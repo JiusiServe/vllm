@@ -82,11 +82,13 @@ async def forward_streaming_request(
             tranf_E_e: float = time.perf_counter()
             model_name = "Unknown"
             is_mm = True
+            instance_id = "Unknown"
             observe_proxy_transfer_to_encode(
                 tranf_E_e - tranf_E_s,  # type: ignore
                 model_name,
                 None,
                 is_mm,
+                instance_id,
             )
 
     async def stream_call(tried_instances):
@@ -106,11 +108,13 @@ async def forward_streaming_request(
             tranf_PD_e: float = time.perf_counter()
             model_name = "Unknown"
             is_mm = True
+            instance_id = "Unknown"
             observe_proxy_transfer_to_pd(
                 tranf_PD_e - tranf_PD_s,  # type: ignore
                 model_name,
                 None,
                 is_mm,
+                instance_id,
             )
         yield chunk
 
@@ -138,11 +142,13 @@ async def forward_non_streaming_request(
             tranf_E_e: float = time.perf_counter()
             model_name = "Unknown"
             is_mm = True
+            instance_id = "Unknown"
             observe_proxy_transfer_to_encode(
                 tranf_E_e - tranf_E_s,  # type: ignore
                 model_name,
                 None,
                 is_mm,
+                instance_id,
             )
 
     async def pd_non_stream_call(tried_instances):
@@ -161,11 +167,13 @@ async def forward_non_streaming_request(
         tranf_PD_e: float = time.perf_counter()
         model_name = "Unknown"
         is_mm = True
+        instance_id = "Unknown"
         observe_proxy_transfer_to_pd(
             tranf_PD_e - tranf_PD_s,  # type: ignore
             model_name,
             None,
             is_mm,
+            instance_id,
         )
     return result
 
