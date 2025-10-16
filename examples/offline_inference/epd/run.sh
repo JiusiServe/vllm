@@ -10,6 +10,8 @@ ENCODER_ADDR_PREFIX="${ENCODER_ADDR_PREFIX:-/tmp/encoder}"
 PD_ADDR_PREFIX="${PD_ADDR_PREFIX:-/tmp/prefill_decode}"
 PROXY_ADDR="${PROXY_ADDR:-/tmp/proxy}"
 PID_FILE="${PID_FILE:-${CURRENT_DIR}/pid.txt}"
+METRICS_PORT="${METRICS_PORT:-9000}"
+METRICS_HOST="${METRICS_HOST:-0.0.0.0}"
 
 MODEL=""
 SHARED_STORAGE_PATH="/dev/shm/epd"
@@ -27,10 +29,14 @@ function start_encoder() {
     local address=$2
     local proxy_address=$3
     local log_file=$4
+    local metrics_port=$5
+    local metrics_host=$6
 
     VLLM_USE_V1=1 ASCEND_RT_VISIBLE_DEVICES=$dev_id python -m vllm.entrypoints.disaggregated.worker \
         --proxy-addr $proxy_address \
         --worker-addr $address \
+        --metrics-port $metrics_port \
+        --metrics-host $metrics_host \
         --model $MODEL \
         --gpu-memory-utilization $GPU_UTILIZATION_ENCODER \
         --max-num-seqs $MAX_NUM_SEQS_ENCODER \
@@ -52,10 +58,14 @@ function start_pd() {
     local address=$2
     local proxy_address=$3
     local log_file=$4
+    local metrics_port=$5
+    local metrics_host=$6
 
     VLLM_USE_V1=1 ASCEND_RT_VISIBLE_DEVICES=$dev_id python -m vllm.entrypoints.disaggregated.worker \
         --proxy-addr $proxy_address \
         --worker-addr $address \
+        --metrics-port $metrics_port \
+        --metrics-host $metrics_host \
         --model $MODEL \
         --gpu-memory-utilization $GPU_UTILIZATION_PD \
         --max-num-seqs $MAX_NUM_SEQS_PD \
@@ -87,7 +97,7 @@ function start_all() {
         dev_id=$((ENCODER_DEVICE_ID_BASE + i))
         address="${ENCODER_ADDR_PREFIX}_$i"
         log_file="$LOG_PATH/encoder_$i.log"
-        start_encoder $dev_id $address $PROXY_ADDR $log_file
+        start_encoder $dev_id $address $PROXY_ADDR $log_file $METRICS_PORT $METRICS_HOST
         echo "  Encoder worker $i starting on device $dev_id, address: $address, log: $log_file"
     done
 
@@ -96,7 +106,7 @@ function start_all() {
         dev_id=$((PD_DEVICE_ID_BASE + i))
         address="${PD_ADDR_PREFIX}_$i"
         log_file="$LOG_PATH/prefill_decode_$i.log"
-        start_pd $dev_id $address $PROXY_ADDR $log_file
+        start_pd $dev_id $address $PROXY_ADDR $log_file $METRICS_PORT $METRICS_HOST
         echo "  Prefill/decode worker $i starting on device $dev_id, address: $address, log: $log_file"
     done
 
@@ -178,7 +188,9 @@ chat_with_image() {
         --encode-addr-list $(for ((i=0; i<ENCODER_NUMBER; i++)); do echo -n "${ENCODER_ADDR_PREFIX}_$i "; done) \
         --pd-addr-list $(for ((i=0; i<PD_NUMBER; i++)); do echo -n "${PD_ADDR_PREFIX}_$i "; done) \
         --model-name $MODEL \
-        --image-path $IMAGE_FILE_PATH
+        --image-path $IMAGE_FILE_PATH \
+        --metrics-port $METRICS_PORT \
+        --metrics-host $METRICS_HOST
 }
 
 chat_with_image
