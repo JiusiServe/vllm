@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from collections import defaultdict, deque
 from collections.abc import Iterable
@@ -17,7 +18,6 @@ from vllm.distributed.kv_transfer.kv_connector.factory import (
     KVConnectorFactory)
 from vllm.distributed.kv_transfer.kv_connector.v1 import (KVConnectorBase_V1,
                                                           KVConnectorRole)
-from vllm.entrypoints.disaggregated.worker import TIMECONUT_ENABLED
 from vllm.logger import init_logger
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.v1.core.encoder_cache_manager import (EncoderCacheManager,
@@ -35,6 +35,8 @@ from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.request import Request, RequestStatus
 from vllm.v1.spec_decode.metrics import SpecDecodingStats
 from vllm.v1.structured_output import StructuredOutputManager
+
+TIMECONUT_ENABLED = os.getenv("TIMECONUT_ENABLED", "0") == "1"
 
 logger = init_logger(__name__)
 
