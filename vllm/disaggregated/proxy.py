@@ -240,7 +240,7 @@ class Proxy(EngineClient):
         self,
         prompt: PromptType,
         sampling_params: SamplingParams,
-        request_id: str,
+        request_id: Optional[str] = None,
         lora_request: Optional[LoRARequest] = None,
         trace_headers: Optional[Mapping[str, str]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
@@ -260,7 +260,10 @@ class Proxy(EngineClient):
             request_id = uuid.uuid4().hex
 
         q = asyncio.Queue()
-        self.queues[request_id] = q
+        if request_id in self.queues:
+            raise ValueError(f"Request id {request_id} already running.")
+        else:
+            self.queues[request_id] = q
 
         # Support both raw string prompts and dict prompts with multimodal data
         prompt_text = prompt["prompt"] if isinstance(prompt, dict) else prompt
@@ -272,6 +275,10 @@ class Proxy(EngineClient):
         )
 
         try:
+            # need to validate to avoid decode failed later
+            req_dict = msgspec.to_builtins(request)
+            request = msgspec.convert(req_dict, GenerationRequest, strict=True)
+
             if _has_mm_data(prompt):
                 request.multi_modal_data = _encode_mm_data(
                     prompt["multi_modal_data"])
@@ -280,6 +287,8 @@ class Proxy(EngineClient):
             # TODO: support pd separation
             async for pd_response in self._run_pd(request, q):
                 yield self._to_request_output(pd_response)
+        except msgspec.ValidationError as e:
+            raise RuntimeError(f"Invalid Parameters: {e}.") from e
         finally:
             self.queues.pop(request_id, None)
 
@@ -355,7 +364,6 @@ class Proxy(EngineClient):
                     resp = heartbeat_decoder.decode(payload)
                 elif resp_type == ResponseType.FAILURE:
                     resp = failure_decoder.decode(payload)
-                    raise RuntimeError(f"Worker error: {resp.error_message}")
                 else:
                     raise RuntimeError(
                         f"Unknown response type from worker: {resp_type}")
@@ -364,6 +372,9 @@ class Proxy(EngineClient):
                     logger.warning(
                         "Request %s may have been aborted, ignore response.",
                         resp.request_id)
+                elif isinstance(resp, FailureResponse):
+                    self.queues[resp.request_id].put_nowait(
+                        RuntimeError(f"Request error: {resp.error_message}"))
                 else:
                     self.queues[resp.request_id].put_nowait(resp)
 

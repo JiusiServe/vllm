@@ -8,9 +8,10 @@ import numpy as np
 import zmq
 import zmq.asyncio
 
-from vllm.disaggregated.protocol import (GenerationRequest, GenerationResponse,
-                                         HeartbeatRequest, HeartbeatResponse,
-                                         RequestType, ResponseType)
+from vllm.disaggregated.protocol import (FailureResponse, GenerationRequest,
+                                         GenerationResponse, HeartbeatRequest,
+                                         HeartbeatResponse, RequestType,
+                                         ResponseType)
 from vllm.engine.protocol import EngineClient
 from vllm.logger import init_logger
 
@@ -107,20 +108,30 @@ class DisaggWorker:
     ):
         request_id = req.request_id
 
-        generator = self.engine.generate(
-            prompt={
-                "prompt": req.prompt,
-                "multi_modal_data": _decode_mm_data(req.multi_modal_data),
-            },
-            sampling_params=req.sampling_params,
-            request_id=request_id,
-        )
+        try:
+            generator = self.engine.generate(
+                prompt={
+                    "prompt": req.prompt,
+                    "multi_modal_data": _decode_mm_data(req.multi_modal_data),
+                },
+                sampling_params=req.sampling_params,
+                request_id=request_id,
+            )
 
-        async for request_output in generator:
-            response = GenerationResponse.from_request_output(request_output)
+            async for request_output in generator:
+                response = GenerationResponse.from_request_output(
+                    request_output)
 
+                response_bytes = self.encoder.encode(response)
+                msg = make_msg_func(response_bytes)
+                await self.to_proxy.send_multipart(msg, copy=False)
+        except Exception as e:
+            logger.exception("Generation failed for request %s", request_id)
+            response = FailureResponse(request_id=request_id,
+                                       error_message=str(e)
+                                       or type(e).__name__)
             response_bytes = self.encoder.encode(response)
-            msg = make_msg_func(response_bytes)
+            msg = (ResponseType.FAILURE, response_bytes)
             await self.to_proxy.send_multipart(msg, copy=False)
 
 
