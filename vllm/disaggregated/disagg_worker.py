@@ -12,8 +12,9 @@ import zmq.asyncio
 from vllm.disaggregated.protocol import (GenerationRequest, GenerationResponse,
                                          RequestType, ResponseType)
 from vllm.engine.protocol import EngineClient
-from vllm.entrypoints.disaggregated.worker import TIMECONUT_ENABLED
 from vllm.logger import init_logger
+
+TIMECONUT_ENABLED = os.getenv("TIMECONUT_ENABLED", "0") == "1"
 
 logger = init_logger(__name__)
 

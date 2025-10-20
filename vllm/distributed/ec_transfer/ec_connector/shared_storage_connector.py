@@ -9,9 +9,10 @@ import safetensors
 from vllm.config import VllmConfig
 from vllm.distributed.ec_transfer.ec_connector.base import (
     ECConnectorBase, ECConnectorMetadata, ECConnectorRole)
-from vllm.entrypoints.disaggregated.worker import TIMECONUT_ENABLED
 from vllm.logger import init_logger
 from vllm.v1.core.sched.output import SchedulerOutput
+
+TIMECONUT_ENABLED = os.getenv("TIMECONUT_ENABLED", "0") == "1"
 
 if TYPE_CHECKING:
     from vllm.v1.request import Request
