@@ -57,7 +57,7 @@ async def main(args) -> None:
             start_http_server(args.metrics_port,
                               addr=args.metrics_host,
                               registry=get_prometheus_registry())
-            print(f"Started {ec_role} prometheus metrics server on"
+            print(f"Started {ec_role} prometheus metrics server on "
                   f"{args.metrics_host}:{args.metrics_port}")
         else:
             print("No free port found. Metrics exporter disabled.")

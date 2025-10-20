@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import os
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional, Union
 
@@ -95,9 +96,10 @@ class ECSharedStorageConnector(ECConnectorBase):
                     encoder_cache[mm_data.request_id] = {}
                 encoder_cache[mm_data.request_id][input_id] = ec_cache
                 if TIMECOUNT_ENABLED:
+                    load_encoder_cache_time = time.perf_counter()
                     logger.info(
-                        "Success load encoder cache for request_id %s, " \
-                        "input_id %d", mm_data.request_id, input_id)
+                        "Success load encoder cache for request_id %s, time " \
+                        "at %.3f", mm_data.request_id, load_encoder_cache_time)
                 logger.debug(
                     "Success load encoder cache for request_id %s, input_id %d",
                     mm_data.request_id, input_id)
@@ -126,10 +128,11 @@ class ECSharedStorageConnector(ECConnectorBase):
         tensors = {"ec_cache": ec_cache.detach().cpu()}
         safetensors.torch.save_file(tensors, filename)
         if TIMECOUNT_ENABLED:
+            save_encoder_cache_time = time.perf_counter()
             logger.info(
-                "Save cache successful for mm_hash %s, " \
-                "request_id %s, input_id %s",
-                mm_hash, request_id, input_id)
+                "Save cache successful for, " \
+                "request_id %s, input_id %s, time at %.3f",
+                request_id, input_id, save_encoder_cache_time)
         logger.debug(
             "Save cache successful for mm_hash %s, request_id %s, input_id %s",
             mm_hash, request_id, input_id)
