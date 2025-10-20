@@ -346,6 +346,12 @@ class PrometheusStatLogger(StatLoggerBase):
                 "Histogram of time spent in DECODE phase for request.",
                 buckets=request_latency_buckets,
                 labelnames=labelnames).labels(*labelvalues)
+        self.histogram_encoder_consume_seconds = self._histogram_cls(
+            name="vllm:request_encoder_consume_time_seconds",
+            documentation=
+            "Histogram of time spent in ENCODER phase for request.",
+            labelnames=labelnames,
+            buckets=request_latency_buckets)
 
         #
         # LoRA metrics
@@ -450,6 +456,8 @@ class PrometheusStatLogger(StatLoggerBase):
                 finished_request.num_generation_tokens)
             self.histogram_max_tokens_request.observe(
                 finished_request.max_tokens_param)
+            self.histogram_encoder_consume_seconds.observe(
+                finished_request.encoder_consume_time)
 
         if self.gauge_lora_info is not None:
             running_lora_adapters = \

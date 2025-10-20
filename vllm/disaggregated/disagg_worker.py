@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import asyncio
 import os
+import time
 
 import msgspec
 import numpy as np
@@ -11,6 +12,7 @@ import zmq.asyncio
 from vllm.disaggregated.protocol import (GenerationRequest, GenerationResponse,
                                          RequestType, ResponseType)
 from vllm.engine.protocol import EngineClient
+from vllm.entrypoints.disaggregated.worker import TIMECONUT_ENABLED
 from vllm.logger import init_logger
 
 logger = init_logger(__name__)
@@ -63,10 +65,19 @@ class DisaggWorker:
     async def _handle_request(self, req_type: bytes, req_data: bytes):
         if req_type == RequestType.ENCODE:
             req = self.decoder_generate.decode(req_data)
+            if TIMECONUT_ENABLED:
+                proxy_to_encoder_time_end = time.perf_counter()
+                logger.info("encode received proxy request: %s at time: %.3f",
+                            req.request_id, proxy_to_encoder_time_end)
             req.sampling_params.max_tokens = 1
             await self._encode_handler(req)
         elif req_type == RequestType.GENERATION:
             req = self.decoder_generate.decode(req_data)
+            if TIMECONUT_ENABLED:
+                proxy_to_pd_time_end = time.perf_counter()
+                logger.info(
+                    "generation received proxy request: %s at time: %.3f",
+                    req.request_id, proxy_to_pd_time_end)
             await self._generation_handler(req)
         elif req_type == RequestType.ABORT:
             req = self.decoder_abort.decode(req_data)

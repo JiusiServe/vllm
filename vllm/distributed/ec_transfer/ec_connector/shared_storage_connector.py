@@ -9,6 +9,7 @@ import safetensors
 from vllm.config import VllmConfig
 from vllm.distributed.ec_transfer.ec_connector.base import (
     ECConnectorBase, ECConnectorMetadata, ECConnectorRole)
+from vllm.entrypoints.disaggregated.worker import TIMECONUT_ENABLED
 from vllm.logger import init_logger
 from vllm.v1.core.sched.output import SchedulerOutput
 
@@ -92,6 +93,10 @@ class ECSharedStorageConnector(ECConnectorBase):
                 if mm_data.request_id not in encoder_cache:
                     encoder_cache[mm_data.request_id] = {}
                 encoder_cache[mm_data.request_id][input_id] = ec_cache
+                if TIMECONUT_ENABLED:
+                    logger.info(
+                        "Success load encoder cache for request_id %s, " \
+                        "input_id %d", mm_data.request_id, input_id)
                 logger.debug(
                     "Success load encoder cache for request_id %s, input_id %d",
                     mm_data.request_id, input_id)
@@ -107,18 +112,23 @@ class ECSharedStorageConnector(ECConnectorBase):
             return
         encoder_cache = kwargs.get("encoder_cache")
         mm_hash = kwargs.get("mm_hash")
+        request_id = kwargs.get("request_id")
+        input_id = kwargs.get("input_id")
         assert encoder_cache is not None
         if mm_hash:
             filename = self._generate_filename_debug(mm_hash)
             ec_cache = encoder_cache[mm_hash]
         else:
-            request_id = kwargs.get("request_id")
-            input_id = kwargs.get("input_id")
             filename = self._generate_filename_debug(
                 f"{request_id}_{input_id}")
             ec_cache = encoder_cache[request_id][input_id]
         tensors = {"ec_cache": ec_cache.detach().cpu()}
         safetensors.torch.save_file(tensors, filename)
+        if TIMECONUT_ENABLED:
+            logger.info(
+                "Save cache successful for mm_hash %s, " \
+                "request_id %s, input_id %s",
+                mm_hash, request_id, input_id)
         logger.debug(
             "Save cache successful for mm_hash %s, request_id %s, input_id %s",
             mm_hash, request_id, input_id)

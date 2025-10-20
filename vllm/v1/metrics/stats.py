@@ -61,6 +61,8 @@ class RequestStateStats:
     scheduled_ts: float = 0.0
     first_token_ts: float = 0.0
     last_token_ts: float = 0.0
+    encoder_consume_start_ts: float = 0.0
+    encoder_consume_end_ts: float = 0.0
 
 
 @dataclass
@@ -76,6 +78,7 @@ class FinishedRequestStats:
     prefill_time: float = 0.0
     inference_time: float = 0.0
     decode_time: float = 0.0
+    encoder_consume_time: float = 0.0
 
 
 class IterationStats:
@@ -145,6 +148,10 @@ class IterationStats:
             elif event.type == EngineCoreEventType.PREEMPTED:
                 self.num_preempted_reqs += 1
                 LoRARequestStates.preempted_request(lora_stats, req_id)
+            elif event.type == EngineCoreEventType.ENCODER_CONSUME_START:
+                req_stats.encoder_consume_start_ts = event.timestamp
+            elif event.type == EngineCoreEventType.ENCODER_CONSUME_END:
+                req_stats.encoder_consume_end_ts = event.timestamp
 
     def update_from_finished_request(self, finish_reason: "FinishReason",
                                      num_prompt_tokens: int,
@@ -167,6 +174,9 @@ class IterationStats:
         # Any preemptions during prefill or decode are included
         inference_time = req_stats.last_token_ts - req_stats.scheduled_ts
 
+        encoder_consume_time = req_stats.encoder_consume_end_ts -\
+            req_stats.encoder_consume_start_ts
+
         finished_req = \
             FinishedRequestStats(finish_reason=finish_reason,
                                  e2e_latency=e2e_latency,
@@ -176,7 +186,8 @@ class IterationStats:
                                  queued_time=queued_time,
                                  prefill_time=prefill_time,
                                  inference_time=inference_time,
-                                 decode_time=decode_time)
+                                 decode_time=decode_time,
+                                 encoder_consume_time=encoder_consume_time)
         self.finished_requests.append(finished_req)
 
 

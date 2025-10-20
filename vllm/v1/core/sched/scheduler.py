@@ -17,6 +17,7 @@ from vllm.distributed.kv_transfer.kv_connector.factory import (
     KVConnectorFactory)
 from vllm.distributed.kv_transfer.kv_connector.v1 import (KVConnectorBase_V1,
                                                           KVConnectorRole)
+from vllm.entrypoints.disaggregated.worker import TIMECONUT_ENABLED
 from vllm.logger import init_logger
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.v1.core.encoder_cache_manager import (EncoderCacheManager,
@@ -167,6 +168,7 @@ class Scheduler(SchedulerInterface):
             log_stats=self.log_stats,
             enable_kv_cache_events=self.enable_kv_cache_events,
         )
+        self._epd_encoder_reqs: set[str] = set()
 
     def schedule(self) -> SchedulerOutput:
         # NOTE(woosuk) on the scheduling algorithm:
@@ -317,6 +319,12 @@ class Scheduler(SchedulerInterface):
                 for i in encoder_inputs_to_schedule:
                     self.encoder_cache_manager.allocate(request, i)
                 encoder_budget = new_encoder_budget
+                if self.log_stats and TIMECONUT_ENABLED and request.request_id\
+                    not in self._epd_encoder_reqs:
+                    # Record EPD encoder request
+                    self._epd_encoder_reqs.add(request.request_id)
+                    request.record_event(
+                        EngineCoreEventType.ENCODER_CONSUME_START)
             if (self.ec_connector is not None and request.has_encoder_inputs
                     and external_load_encoder_input):
                 for i in external_load_encoder_input:
@@ -502,6 +510,12 @@ class Scheduler(SchedulerInterface):
                     for i in encoder_inputs_to_schedule:
                         self.encoder_cache_manager.allocate(request, i)
                     encoder_budget = new_encoder_budget
+                    if self.log_stats and TIMECONUT_ENABLED and\
+                        request.request_id not in self._epd_encoder_reqs:
+                        # Record EPD encoder request
+                        self._epd_encoder_reqs.add(request.request_id)
+                        request.record_event(
+                            EngineCoreEventType.ENCODER_CONSUME_START)
                 # Allocate for external load encoder cache
                 if (self.ec_connector is not None
                         and request.has_encoder_inputs
@@ -783,7 +797,9 @@ class Scheduler(SchedulerInterface):
                 # The request was not scheduled in this step.
                 new_running.append(request)
                 continue
-
+            if self.log_stats and TIMECONUT_ENABLED and (
+                    req_id in self._epd_encoder_reqs):
+                request.record_event(EngineCoreEventType.ENCODER_CONSUME_END)
             req_index = model_runner_output.req_id_to_index[req_id]
             generated_token_ids = sampled_token_ids[req_index]
 
@@ -888,6 +904,8 @@ class Scheduler(SchedulerInterface):
             if not stopped:
                 new_running.append(request)
 
+        if self.log_stats and TIMECONUT_ENABLED:
+            self._epd_encoder_reqs.clear()
         # KV Connector: update state for finished KV Transfers.
         self._update_from_kv_xfer_finished(model_runner_output)
 
