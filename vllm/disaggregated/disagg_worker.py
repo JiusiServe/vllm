@@ -14,7 +14,7 @@ from vllm.disaggregated.protocol import (GenerationRequest, GenerationResponse,
 from vllm.engine.protocol import EngineClient
 from vllm.logger import init_logger
 
-TIMECONUT_ENABLED = os.getenv("TIMECONUT_ENABLED", "0") == "1"
+TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED", "0") == "1"
 
 logger = init_logger(__name__)
 
@@ -66,7 +66,7 @@ class DisaggWorker:
     async def _handle_request(self, req_type: bytes, req_data: bytes):
         if req_type == RequestType.ENCODE:
             req = self.decoder_generate.decode(req_data)
-            if TIMECONUT_ENABLED:
+            if TIMECOUNT_ENABLED:
                 proxy_to_encoder_time_end = time.perf_counter()
                 logger.info("encode received proxy request: %s at time: %.3f",
                             req.request_id, proxy_to_encoder_time_end)
@@ -74,7 +74,7 @@ class DisaggWorker:
             await self._encode_handler(req)
         elif req_type == RequestType.GENERATION:
             req = self.decoder_generate.decode(req_data)
-            if TIMECONUT_ENABLED:
+            if TIMECOUNT_ENABLED:
                 proxy_to_pd_time_end = time.perf_counter()
                 logger.info(
                     "generation received proxy request: %s at time: %.3f",

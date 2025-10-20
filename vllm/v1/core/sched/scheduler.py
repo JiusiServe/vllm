@@ -36,7 +36,7 @@ from vllm.v1.request import Request, RequestStatus
 from vllm.v1.spec_decode.metrics import SpecDecodingStats
 from vllm.v1.structured_output import StructuredOutputManager
 
-TIMECONUT_ENABLED = os.getenv("TIMECONUT_ENABLED", "0") == "1"
+TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED", "0") == "1"
 
 logger = init_logger(__name__)
 
@@ -321,7 +321,7 @@ class Scheduler(SchedulerInterface):
                 for i in encoder_inputs_to_schedule:
                     self.encoder_cache_manager.allocate(request, i)
                 encoder_budget = new_encoder_budget
-                if self.log_stats and TIMECONUT_ENABLED and request.request_id\
+                if self.log_stats and TIMECOUNT_ENABLED and request.request_id\
                     not in self._epd_encoder_reqs:
                     # Record EPD encoder request
                     self._epd_encoder_reqs.add(request.request_id)
@@ -512,7 +512,7 @@ class Scheduler(SchedulerInterface):
                     for i in encoder_inputs_to_schedule:
                         self.encoder_cache_manager.allocate(request, i)
                     encoder_budget = new_encoder_budget
-                    if self.log_stats and TIMECONUT_ENABLED and\
+                    if self.log_stats and TIMECOUNT_ENABLED and\
                         request.request_id not in self._epd_encoder_reqs:
                         # Record EPD encoder request
                         self._epd_encoder_reqs.add(request.request_id)
@@ -799,7 +799,7 @@ class Scheduler(SchedulerInterface):
                 # The request was not scheduled in this step.
                 new_running.append(request)
                 continue
-            if self.log_stats and TIMECONUT_ENABLED and (
+            if self.log_stats and TIMECOUNT_ENABLED and (
                     req_id in self._epd_encoder_reqs):
                 request.record_event(EngineCoreEventType.ENCODER_CONSUME_END)
             req_index = model_runner_output.req_id_to_index[req_id]
@@ -906,7 +906,7 @@ class Scheduler(SchedulerInterface):
             if not stopped:
                 new_running.append(request)
 
-        if self.log_stats and TIMECONUT_ENABLED:
+        if self.log_stats and TIMECOUNT_ENABLED:
             self._epd_encoder_reqs.clear()
         # KV Connector: update state for finished KV Transfers.
         self._update_from_kv_xfer_finished(model_runner_output)

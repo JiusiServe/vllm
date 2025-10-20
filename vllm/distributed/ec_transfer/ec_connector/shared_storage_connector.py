@@ -12,7 +12,7 @@ from vllm.distributed.ec_transfer.ec_connector.base import (
 from vllm.logger import init_logger
 from vllm.v1.core.sched.output import SchedulerOutput
 
-TIMECONUT_ENABLED = os.getenv("TIMECONUT_ENABLED", "0") == "1"
+TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED", "0") == "1"
 
 if TYPE_CHECKING:
     from vllm.v1.request import Request
@@ -94,7 +94,7 @@ class ECSharedStorageConnector(ECConnectorBase):
                 if mm_data.request_id not in encoder_cache:
                     encoder_cache[mm_data.request_id] = {}
                 encoder_cache[mm_data.request_id][input_id] = ec_cache
-                if TIMECONUT_ENABLED:
+                if TIMECOUNT_ENABLED:
                     logger.info(
                         "Success load encoder cache for request_id %s, " \
                         "input_id %d", mm_data.request_id, input_id)
@@ -125,7 +125,7 @@ class ECSharedStorageConnector(ECConnectorBase):
             ec_cache = encoder_cache[request_id][input_id]
         tensors = {"ec_cache": ec_cache.detach().cpu()}
         safetensors.torch.save_file(tensors, filename)
-        if TIMECONUT_ENABLED:
+        if TIMECOUNT_ENABLED:
             logger.info(
                 "Save cache successful for mm_hash %s, " \
                 "request_id %s, input_id %s",

@@ -18,7 +18,7 @@ from vllm.disaggregated.protocol import (FailureResponse, GenerationRequest,
                                          GenerationResponse, RequestType,
                                          ResponseType)
 from vllm.engine.protocol import EngineClient
-from vllm.entrypoints.disaggregated.worker import TIMECONUT_ENABLED
+from vllm.entrypoints.disaggregated.worker import TIMECOUNT_ENABLED
 from vllm.inputs.data import PromptType
 from vllm.inputs.preprocess import InputPreprocessor
 from vllm.logger import init_logger
@@ -124,7 +124,7 @@ class Proxy(EngineClient):
         idx = (hash(request.request_id) & 0x7FFFFFFF) % len(
             self.to_encode_sockets)
         socket = self.to_encode_sockets[idx]
-        if TIMECONUT_ENABLED:
+        if TIMECOUNT_ENABLED:
             proxy_to_encode_time_start = time.perf_counter()
             logger.info("Proxy sending encode request: %s at time: %.3f",
                         request.request_id, proxy_to_encode_time_start)
@@ -156,7 +156,7 @@ class Proxy(EngineClient):
         msg = (RequestType.GENERATION, payload)
         idx = (hash(request.request_id) & 0x7FFFFFFF) % len(self.to_pd_sockets)
         socket = self.to_pd_sockets[idx]
-        if TIMECONUT_ENABLED:
+        if TIMECOUNT_ENABLED:
             proxy_to_pd_time_start = time.perf_counter()
             logger.info("Proxy sending prefill request: %s at time: %.3f",
                         request.request_id, proxy_to_pd_time_start)

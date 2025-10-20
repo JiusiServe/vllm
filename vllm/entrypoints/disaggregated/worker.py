@@ -17,7 +17,7 @@ from vllm.utils import FlexibleArgumentParser
 from vllm.v1.metrics.prometheus import get_prometheus_registry
 from vllm.version import __version__ as VLLM_VERSION
 
-TIMECONUT_ENABLED = os.getenv("TIMECONUT_ENABLED", "0") == "1"
+TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED", "0") == "1"
 
 logger = init_logger(__name__)
 
@@ -34,7 +34,7 @@ async def run(args, engine: EngineClient):
     try:
         await worker.run_busy_loop()
     finally:
-        if TIMECONUT_ENABLED and args.metrics_port is not None:
+        if TIMECOUNT_ENABLED and args.metrics_port is not None:
             ec_role = args.ec_transfer_config.ec_role
             url = f"http://{args.metrics_host}:{args.metrics_port}/metrics"
             try:
@@ -50,7 +50,7 @@ async def main(args) -> None:
     logger.info("Disaggregated Worker Server, vLLM ver. %s", VLLM_VERSION)
     logger.info("Args: %s", args)
     # metrics
-    if TIMECONUT_ENABLED:
+    if TIMECOUNT_ENABLED:
         ec_role = args.ec_transfer_config.ec_role
         args.metrics_port = _find_free_port(args.metrics_port)
         if args.metrics_port is not None:

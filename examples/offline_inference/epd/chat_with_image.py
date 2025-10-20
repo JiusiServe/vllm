@@ -11,7 +11,7 @@ from prometheus_client import start_http_server
 
 from vllm import SamplingParams
 from vllm.disaggregated.proxy import Proxy
-from vllm.entrypoints.disaggregated.worker import TIMECONUT_ENABLED, _find_free_port
+from vllm.entrypoints.disaggregated.worker import TIMECOUNT_ENABLED, _find_free_port
 from vllm.logger import init_logger
 from vllm.v1.metrics.prometheus import get_prometheus_registry
 
@@ -62,7 +62,7 @@ image_array = np.array(image)
 
 async def main():
     # metrics
-    if TIMECONUT_ENABLED:
+    if TIMECOUNT_ENABLED:
         metrics_port = _find_free_port(args.metrics_port)
         if metrics_port is not None:
             start_http_server(
@@ -100,7 +100,7 @@ async def main():
         generated_text = o.outputs[0].text
         print(generated_text, flush=True)
 
-    if TIMECONUT_ENABLED and metrics_port is not None:  # type: ignore
+    if TIMECOUNT_ENABLED and metrics_port is not None:  # type: ignore
         url = f"http://{args.metrics_host}:{metrics_port}/metrics"  # type: ignore
         try:
             r = requests.get(url, timeout=3)
