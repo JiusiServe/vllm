@@ -37,17 +37,17 @@ async def main(args) -> None:
     logger.info("Disaggregated Worker Server, vLLM ver. %s", VLLM_VERSION)
     logger.info("Args: %s", args)
     # metrics
+    ec_role = args.ec_transfer_config.ec_role
     metrics_port = _find_free_port(args.metrics_port)
     if metrics_port is not None:
         start_http_server(metrics_port,
                           addr=args.metrics_host,
                           registry=get_prometheus_registry())
-        logger.info("Started prometheus metrics server on %s:%d",
-                    args.metrics_host, metrics_port)
+        print(f"Started {ec_role} prometheus metrics server on"
+              f"{args.metrics_host}:{metrics_port}")
     else:
-        logger.warning(
-            "No free port found in range [%d, %d). Metrics exporter disabled.",
-            args.metrics_port, args.metrics_port + 50)
+        print(f"No free port found in range [{args.metrics_port}, "
+              f"{args.metrics_port + 50}). Metrics exporter disabled.")
 
     async with build_async_engine_client(args) as engine:
         await run(args, engine)

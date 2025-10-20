@@ -5,6 +5,7 @@ import asyncio
 import uuid
 
 import numpy as np
+import requests
 from PIL import Image
 from prometheus_client import start_http_server
 
@@ -66,16 +67,14 @@ async def main():
         start_http_server(
             metrics_port, addr=args.metrics_host, registry=get_prometheus_registry()
         )
-        logger.info(
-            "Started prometheus metrics server on %s:%d",
-            args.metrics_host,
-            metrics_port,
+        print(
+            f"Started proxy prometheus metrics server on "
+            f"{args.metrics_host}:{metrics_port}"
         )
     else:
-        logger.warning(
-            "No free port found in range [%d, %d). Metrics exporter disabled.",
-            args.metrics_port,
-            args.metrics_port + 50,
+        print(
+            f"No free port found in range [{args.metrics_port},"
+            f" {args.metrics_port + 50}). Metrics exporter disabled."
         )
 
     prompt = (
@@ -96,6 +95,14 @@ async def main():
         sampling_params=sampling_params,
         request_id=str(uuid.uuid4()),
     )
+    if metrics_port is not None:
+        url = f"http://{args.metrics_host}:{metrics_port}/metrics"
+        try:
+            r = requests.get(url, timeout=3)
+            print(f"=== GET {url} ===")
+            print(r.text)
+        except Exception:
+            pass
     async for o in outputs:
         generated_text = o.outputs[0].text
         print(generated_text, flush=True)
