@@ -145,4 +145,6 @@ def _decode_mm_data(mm_data: dict[str, any]) -> dict[str, any]:
             decoded_img = np.frombuffer(bytes(
                 img["data"]), dtype=img["dtype"]).reshape(img["shape"])
             decoded_images.append(decoded_img)
+    if len(decoded_images) == 1:
+        decoded_images = decoded_images[0]
     return {"image": decoded_images}
