@@ -49,7 +49,7 @@ class Proxy(EngineClient):
         pd_addr_list: list[str],
         model_name: str,
         router: type[RoutingInterface] = RandomRouter,
-        enable_health_monitor=True,
+        enable_health_monitor=False,
         health_check_interval=10,
         health_threshold=3,
     ):
@@ -369,9 +369,10 @@ class Proxy(EngineClient):
                         f"Unknown response type from worker: {resp_type}")
 
                 if resp.request_id not in self.queues:
-                    logger.warning(
-                        "Request %s may have been aborted, ignore response.",
-                        resp.request_id)
+                    if resp_type != ResponseType.HEARTBEAT:
+                        logger.warning(
+                            "Request %s may have been aborted, "
+                            "ignore response.", resp.request_id)
                 elif isinstance(resp, FailureResponse):
                     self.queues[resp.request_id].put_nowait(
                         RuntimeError(f"Request error: {resp.error_message}"))
@@ -429,6 +430,10 @@ class Proxy(EngineClient):
         pass
 
     async def check_health(self, server_type: ServerType, id: int):
+        # lazy initialization
+        if self.output_handler is None:
+            self.output_handler = asyncio.create_task(
+                self._run_output_handler())
         request_id = str(uuid.uuid4())
         request = HeartbeatRequest(request_id=request_id)
         q = asyncio.Queue()
