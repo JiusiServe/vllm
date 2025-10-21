@@ -53,6 +53,12 @@ class Proxy(EngineClient):
         health_check_interval=10,
         health_threshold=3,
     ):
+        self._check_type("enable_health_monitor", enable_health_monitor, bool)
+        self._check_positive_int("health_check_interval",
+                                 health_check_interval)
+        self._check_positive_int("health_threshold", health_threshold)
+        self._check_subclass("router", router, RoutingInterface)
+
         self.queues: dict[str, asyncio.Queue] = {}
 
         self.encoder = msgspec.msgpack.Encoder()
@@ -497,6 +503,20 @@ class Proxy(EngineClient):
 
     async def reset_mm_cache(self) -> None:
         raise NotImplementedError
+
+    def _check_type(self, name, value, expected_type):
+        if not isinstance(value, expected_type):
+            raise TypeError(f"{name} must be {expected_type.__name__}, ",
+                            f"got {type(value).__name__}")
+
+    def _check_positive_int(self, name, value):
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+
+    def _check_subclass(self, name, value, base_class):
+        if not isinstance(value, type) or not issubclass(value, base_class):
+            raise TypeError(
+                f"{name} must be a subclass of {base_class.__name__}")
 
 
 def _has_mm_data(prompt: PromptType) -> bool:
