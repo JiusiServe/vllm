@@ -40,6 +40,7 @@ class ResponseType:
 class GenerationResponse(msgspec.Struct):
     request_id: str
     text: str
+    prompt_token_ids: list[int]
     token_ids: list[int]
     prompt_token_ids: list[int]
     finish_reason: Optional[str] = None
@@ -55,6 +56,7 @@ class GenerationResponse(msgspec.Struct):
         return GenerationResponse(
             request_id=request_output.request_id,
             text=out.text,
+            prompt_token_ids=request_output.prompt_token_ids,
             token_ids=out.token_ids,
             prompt_token_ids=request_output.prompt_token_ids,
             finish_reason=out.finish_reason,
