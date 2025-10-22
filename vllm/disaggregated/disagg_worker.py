@@ -9,8 +9,10 @@ import numpy as np
 import zmq
 import zmq.asyncio
 
-from vllm.disaggregated.protocol import (GenerationRequest, GenerationResponse,
-                                         RequestType, ResponseType)
+from vllm.disaggregated.protocol import (FailureResponse, GenerationRequest,
+                                         GenerationResponse, HeartbeatRequest,
+                                         HeartbeatResponse, RequestType,
+                                         ResponseType)
 from vllm.engine.protocol import EngineClient
 from vllm.logger import init_logger
 
@@ -38,6 +40,7 @@ class DisaggWorker:
         self.to_proxy.connect(self.proxy_addr)
 
         self.decoder_generate = msgspec.msgpack.Decoder(GenerationRequest)
+        self.decoder_heartbeat = msgspec.msgpack.Decoder(HeartbeatRequest)
         self.decoder_abort = msgspec.msgpack.Decoder(GenerationRequest)
         self.encoder = msgspec.msgpack.Encoder()
 
@@ -83,6 +86,9 @@ class DisaggWorker:
         elif req_type == RequestType.ABORT:
             req = self.decoder_abort.decode(req_data)
             await self._abort_handler(req)
+        elif req_type == RequestType.HEARTBEAT:
+            req = self.decoder_heartbeat.decode(req_data)
+            await self._heartbeat_handler(req)
         else:
             raise Exception(f"Unknown Request Type: {req_type}.")
 
@@ -101,6 +107,12 @@ class DisaggWorker:
     async def _abort_handler(self, req: GenerationRequest):
         self.engine.abort(request_id=req.request_id)
 
+    async def _heartbeat_handler(self, req: HeartbeatRequest):
+        msg = (ResponseType.HEARTBEAT,
+               self.encoder.encode(
+                   HeartbeatResponse(request_id=req.request_id, status="OK")))
+        await self.to_proxy.send_multipart(msg, copy=False)
+
     async def _generate(
         self,
         req: GenerationRequest,
@@ -108,20 +120,30 @@ class DisaggWorker:
     ):
         request_id = req.request_id
 
-        generator = self.engine.generate(
-            prompt={
-                "prompt": req.prompt,
-                "multi_modal_data": _decode_mm_data(req.multi_modal_data),
-            },
-            sampling_params=req.sampling_params,
-            request_id=request_id,
-        )
+        try:
+            generator = self.engine.generate(
+                prompt={
+                    "prompt": req.prompt,
+                    "multi_modal_data": _decode_mm_data(req.multi_modal_data),
+                },
+                sampling_params=req.sampling_params,
+                request_id=request_id,
+            )
 
-        async for request_output in generator:
-            response = GenerationResponse.from_request_output(request_output)
+            async for request_output in generator:
+                response = GenerationResponse.from_request_output(
+                    request_output)
 
+                response_bytes = self.encoder.encode(response)
+                msg = make_msg_func(response_bytes)
+                await self.to_proxy.send_multipart(msg, copy=False)
+        except Exception as e:
+            logger.exception("Generation failed for request %s", request_id)
+            response = FailureResponse(request_id=request_id,
+                                       error_message=str(e)
+                                       or type(e).__name__)
             response_bytes = self.encoder.encode(response)
-            msg = make_msg_func(response_bytes)
+            msg = (ResponseType.FAILURE, response_bytes)
             await self.to_proxy.send_multipart(msg, copy=False)
 
 
@@ -135,4 +157,6 @@ def _decode_mm_data(mm_data: dict[str, any]) -> dict[str, any]:
             decoded_img = np.frombuffer(bytes(
                 img["data"]), dtype=img["dtype"]).reshape(img["shape"])
             decoded_images.append(decoded_img)
+    if len(decoded_images) == 1:
+        decoded_images = decoded_images[0]
     return {"image": decoded_images}

@@ -47,17 +47,24 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-# new proxy
-p = Proxy(
-    proxy_addr=args.proxy_addr,
-    encode_addr_list=args.encode_addr_list,
-    pd_addr_list=args.pd_addr_list,
-    model_name=args.model_name,
-)
 
 # prepare image
 image = Image.open(args.image_path)
 image_array = np.array(image)
+
+
+async def run_single_request(i, prompt, image_array, sampling_params, p):
+    outputs = p.generate(
+        prompt={
+            "prompt": prompt,
+            "multi_modal_data": {"image": image_array},
+        },
+        sampling_params=sampling_params,
+        request_id=str(uuid.uuid4()),
+    )
+    async for o in outputs:
+        generated_text = o.outputs[0].text
+        print(f"Request({i}) generated_text: {generated_text}", flush=True)
 
 
 async def main():
@@ -78,6 +85,13 @@ async def main():
                 f" {args.metrics_port + 50}). Metrics exporter disabled."
             )
 
+    # new proxy
+    p = Proxy(
+        proxy_addr=args.proxy_addr,
+        encode_addr_list=args.encode_addr_list,
+        pd_addr_list=args.pd_addr_list,
+        model_name=args.model_name,
+    )
     prompt = (
         "<|im_start|> system\n"
         "You are a helpful assistant.<|im_end|> \n"
@@ -88,17 +102,22 @@ async def main():
     )
     sampling_params = SamplingParams(max_tokens=128)
 
-    outputs = p.generate(
-        prompt={
-            "prompt": prompt,
-            "multi_modal_data": {"image": image_array},
-        },
-        sampling_params=sampling_params,
-        request_id=str(uuid.uuid4()),
-    )
-    async for o in outputs:
-        generated_text = o.outputs[0].text
-        print(generated_text, flush=True)
+    tasks = [
+        asyncio.create_task(
+            run_single_request(i, prompt, image_array, sampling_params, p)
+        )
+        for i in range(10)
+    ]
+    await asyncio.gather(*tasks)
+
+    if TIMECOUNT_ENABLED and metrics_port is not None:  # type: ignore
+        url = f"http://{args.metrics_host}:{metrics_port}/metrics"  # type: ignore
+        try:
+            r = requests.get(url, timeout=3)
+            print(f"=== GET {url} ===")
+            print(r.text)
+        except Exception:
+            pass
 
     if TIMECOUNT_ENABLED and metrics_port is not None:  # type: ignore
         url = f"http://{args.metrics_host}:{metrics_port}/metrics"  # type: ignore

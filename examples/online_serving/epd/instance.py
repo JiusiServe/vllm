@@ -22,10 +22,20 @@ class ServerType(Enum):
 
 
 class ServerState:
-    def __init__(self, url, server_type):
+    def __init__(
+        self,
+        url,
+        server_type,
+        health_check_interval: int = 5,
+        health_threshold: int = 3,
+    ):
         self.url = url
         self.server_type = server_type
         self.is_healthy = True
+        self._fail_count = 0
+        self._success_count = 0
+        self.health_threshold = health_threshold
+        self.health_check_interval = health_check_interval
 
         # work load relative
         self._lock = threading.Lock()
@@ -92,15 +102,37 @@ class ServerState:
                 if chunk:
                     yield chunk.decode("utf-8", errors="ignore")
 
-    async def healthy_check(self):
+    async def healthy_check(self, use_threshold: bool = True) -> bool:
         try:
-            async with self.session.get(f"{self.url}/health") as response:
+            timeout_cfg = aiohttp.ClientTimeout(total=self.health_check_interval)
+            async with self.session.get(
+                f"{self.url}/health", timeout=timeout_cfg
+            ) as response:
                 response.raise_for_status()
-            self.is_healthy = True
+            healthy = True
         except Exception as e:
             logger.error("Health check failed for %s: %s", self.url, e)
-            self.is_healthy = False
-        return self.is_healthy
+            healthy = False
+
+        if use_threshold:
+            if healthy:
+                self._success_count = min(
+                    self.health_threshold, self._success_count + 1
+                )
+                self._fail_count = 0
+            else:
+                self._fail_count = min(self.health_threshold, self._fail_count + 1)
+                self._success_count = 0
+
+            if self.is_healthy and self._fail_count >= self.health_threshold:
+                self.is_healthy = False
+                logger.warning("%s marked as unhealthy", self.url)
+            elif not self.is_healthy and self._success_count >= self.health_threshold:
+                self.is_healthy = True
+                logger.info("%s marked as healthy", self.url)
+            return self.is_healthy
+        else:
+            return healthy
 
     async def stop(self):
         await self.session.close()

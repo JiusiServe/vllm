@@ -4,6 +4,7 @@
 import argparse
 import asyncio
 import logging
+import time
 import uuid
 from collections.abc import AsyncIterator
 
@@ -14,7 +15,11 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from instance import ServerType
 from scheduler import ServerScheduler
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
@@ -30,7 +35,7 @@ EXCEPT_ERRORS = (
 async def startup_event():
     await app.state.e_scheduler.init_session()
     await app.state.pd_scheduler.init_session()
-    if app.state.enable_health_daemon:
+    if app.state.enable_health_monitor:
         asyncio.create_task(periodic_health_check(app.state.health_check_interval))
 
 
@@ -173,10 +178,11 @@ async def list_models():
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-async def do_health_check():
-    unhealthy_encoder_url = await app.state.e_scheduler.healthy_check()
-    unhealthy_pd_url = await app.state.pd_scheduler.healthy_check()
+async def do_health_check(use_threshold: bool = True):
+    e_task = asyncio.create_task(app.state.e_scheduler.healthy_check(use_threshold))
+    pd_task = asyncio.create_task(app.state.pd_scheduler.healthy_check(use_threshold))
 
+    unhealthy_encoder_url, unhealthy_pd_url = await asyncio.gather(e_task, pd_task)
     health_status = {
         "proxy": "healthy",
         "unhealthy encode_servers": unhealthy_encoder_url,
@@ -189,7 +195,7 @@ async def do_health_check():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    unhealthy, health_status = await do_health_check()
+    unhealthy, health_status = await do_health_check(use_threshold=False)
 
     if unhealthy:
         return JSONResponse(content=health_status, status_code=503)
@@ -199,9 +205,19 @@ async def health_check():
 
 async def periodic_health_check(health_check_interval):
     while True:
+        start_time = time.monotonic()
         result = await do_health_check()
         logger.info("Periodic health check result: %s", result)
-        await asyncio.sleep(health_check_interval)
+        elapsed = time.monotonic() - start_time
+        sleep_time = max(0, health_check_interval - elapsed)
+        await asyncio.sleep(sleep_time)
+
+
+def positive_int(value):
+    ivalue = int(value)
+    if ivalue <= 0:
+        raise argparse.ArgumentTypeError(f"{value} must be a positive integer (> 0)")
+    return ivalue
 
 
 if __name__ == "__main__":
@@ -236,26 +252,42 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--enable-health-daemon",
+        "--enable-health-monitor",
         action="store_true",
-        help="Enable background health check daemon",
+        help="Enable background health check monitor",
     )
     parser.add_argument(
-        "--health-daemon-interval",
-        type=int,
+        "--health-check-interval",
+        type=positive_int,
         default=5,
         help="Interval (seconds) for background health check. Default: 5",
     )
+    parser.add_argument(
+        "--health-threshold",
+        type=positive_int,
+        default=3,
+        help="Number of consecutive checks required to change health status "
+        "(failures to mark unhealthy, successes to mark healthy). Default: 3",
+    )
 
     args = parser.parse_args()
+    app.state.enable_health_monitor = args.enable_health_monitor
+    app.state.health_check_interval = args.health_check_interval
+    app.state.health_threshold = args.health_threshold
     app.state.e_scheduler = ServerScheduler(
-        args.encode_servers_urls, ServerType.E_INSTANCE, args.scheduling_proxy
+        args.encode_servers_urls,
+        ServerType.E_INSTANCE,
+        app.state.health_check_interval,
+        app.state.health_threshold,
+        args.scheduling_proxy,
     )
     app.state.pd_scheduler = ServerScheduler(
-        args.prefill_decode_servers_urls, ServerType.PD_INSTANCE, args.scheduling_proxy
+        args.prefill_decode_servers_urls,
+        ServerType.PD_INSTANCE,
+        app.state.health_check_interval,
+        app.state.health_threshold,
+        args.scheduling_proxy,
     )
-    app.state.enable_health_daemon = args.enable_health_daemon
-    app.state.health_check_interval = args.health_daemon_interval
 
     logger.info("Starting API proxy on %s:%s with 1 worker", args.host, args.port)
 
