@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 
 from vllm import SamplingParams
+from vllm.disaggregated.protocol import ServerType
 from vllm.disaggregated.proxy import Proxy
 
 parser = argparse.ArgumentParser()
@@ -56,11 +57,40 @@ async def main():
         pd_addr_list=args.pd_addr_list,
         model_name=args.model_name,
     )
+    retry_times = 20
+    sleep_times = 10
+    timeout_times = 3
+    for i in range(retry_times):
+        tasks_0 = [
+            asyncio.create_task(
+                asyncio.wait_for(
+                    p.check_health(ServerType.E_INSTANCE, iid), timeout=timeout_times
+                )
+            )
+            for iid in range(len(args.encode_addr_list))
+        ]
+        tasks_1 = [
+            asyncio.create_task(
+                asyncio.wait_for(
+                    p.check_health(ServerType.PD_INSTANCE, iid), timeout=timeout_times
+                )
+            )
+            for iid in range(len(args.pd_addr_list))
+        ]
+        tasks = tasks_0 + tasks_1
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        if all([isinstance(result, bool) and result for result in results]):
+            print("All instances are ready")
+            break
+        else:
+            print(f"retry_times:{i}, results:{results}")
+            await asyncio.sleep(sleep_times)
+
     prompt = (
         "<|im_start|> system\n"
         "You are a helpful assistant.<|im_end|> \n"
         "<|im_start|> user\n"
-        "<image> \n"
+        "<|image_pad|> \n"
         "What is the text in the illustrate?<|im_end|> \n"
         "<|im_start|> assistant\n"
     )
@@ -73,6 +103,7 @@ async def main():
         for i in range(10)
     ]
     await asyncio.gather(*tasks)
+    p.shutdown()
 
 
 if __name__ == "__main__":
