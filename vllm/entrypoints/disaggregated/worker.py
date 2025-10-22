@@ -3,6 +3,7 @@
 import os
 import socket
 from contextlib import closing
+from typing import Optional
 
 import requests
 import uvloop
@@ -68,7 +69,7 @@ async def main(args) -> None:
 
 def _find_free_port(start_port: int,
                     max_tries: int = 50,
-                    host: str = "0.0.0.0") -> int | None:
+                    host: str = "0.0.0.0") -> Optional[int]:
     """from start_port, find a free port, return the port or None."""
     port = start_port
     for _ in range(max_tries):
