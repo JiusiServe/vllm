@@ -24,6 +24,8 @@ class RequestType:
     ABORT = b"\x01"
     ENCODE = b"\x02"
     HEARTBEAT = b"\x03"
+    START_PROFILE = b"\x04"
+    STOP_PROFILE = b"\x05"
 
 
 class PDAbortRequest(msgspec.Struct):
@@ -81,3 +83,7 @@ class HeartbeatResponse(msgspec.Struct):
 class FailureResponse(msgspec.Struct):
     request_id: str
     error_message: str
+
+
+class ProfileRequest(msgspec.Struct):
+    request_id: str

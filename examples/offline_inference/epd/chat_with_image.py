@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import argparse
 import asyncio
+import os
 import uuid
 
 import numpy as np
@@ -85,7 +86,9 @@ async def main():
         else:
             print(f"retry_times:{i}, results:{results}")
             await asyncio.sleep(sleep_times)
-
+    is_enable_profile = os.getenv("VLLM_TORCH_PROFILER_DIR", "")
+    if is_enable_profile:
+        await p.start_profile()
     prompt = (
         "<|im_start|> system\n"
         "You are a helpful assistant.<|im_end|> \n"
@@ -103,6 +106,8 @@ async def main():
         for i in range(10)
     ]
     await asyncio.gather(*tasks)
+    if is_enable_profile:
+        await p.stop_profile()
     p.shutdown()
 
 

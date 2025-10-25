@@ -15,8 +15,8 @@ from vllm.config import DecodingConfig, ModelConfig, VllmConfig
 from vllm.core.scheduler import SchedulerOutputs
 from vllm.disaggregated.protocol import (FailureResponse, GenerationRequest,
                                          GenerationResponse, HeartbeatRequest,
-                                         HeartbeatResponse, RequestType,
-                                         ResponseType, ServerType)
+                                         HeartbeatResponse, ProfileRequest,
+                                         RequestType, ResponseType, ServerType)
 from vllm.disaggregated.reqeust_stats import RequestStatsMonitor
 from vllm.disaggregated.routing_logic import RandomRouter, RoutingInterface
 from vllm.disaggregated.service_discovery import HealthCheckServiceDiscovery
@@ -463,10 +463,24 @@ class Proxy(EngineClient):
             self.queues.pop(request_id, None)
 
     async def start_profile(self) -> None:
-        raise NotImplementedError
+        for socket in self.to_encode_sockets + self.to_pd_sockets:
+            request_id = str(uuid.uuid4())
+            request = ProfileRequest(request_id=request_id)
+            q = asyncio.Queue()
+            self.queues[request_id] = q
+            payload = self.encoder.encode(request)
+            msg = (RequestType.START_PROFILE, payload)
+            await socket.send_multipart(msg, copy=False)
 
     async def stop_profile(self) -> None:
-        raise NotImplementedError
+        for socket in self.to_encode_sockets + self.to_pd_sockets:
+            request_id = str(uuid.uuid4())
+            request = ProfileRequest(request_id=request_id)
+            q = asyncio.Queue()
+            self.queues[request_id] = q
+            payload = self.encoder.encode(request)
+            msg = (RequestType.STOP_PROFILE, payload)
+            await socket.send_multipart(msg, copy=False)
 
     async def reset_prefix_cache(self,
                                  device: Optional[Device] = None) -> None:

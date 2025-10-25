@@ -77,6 +77,10 @@ class DisaggWorker:
         elif req_type == RequestType.HEARTBEAT:
             req = self.decoder_heartbeat.decode(req_data)
             await self._heartbeat_handler(req)
+        elif req_type == RequestType.START_PROFILE:
+            await self.engine.start_profile()
+        elif req_type == RequestType.STOP_PROFILE:
+            await self.engine.stop_profile()
         else:
             raise Exception(f"Unknown Request Type: {req_type}.")
 
