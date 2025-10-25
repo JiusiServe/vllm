@@ -33,18 +33,6 @@ parser.add_argument(
 )
 parser.add_argument("--model-name", required=True, help="Model name")
 parser.add_argument("--image-path", required=True, help="Path to the image")
-parser.add_argument(
-    "--metrics-host",
-    type=str,
-    default="0.0.0.0",
-    help="The host of the metrics server.",
-)
-parser.add_argument(
-    "--metrics-port",
-    type=int,
-    default=9979,
-    help="The port of the metrics server.",
-)
 args = parser.parse_args()
 
 

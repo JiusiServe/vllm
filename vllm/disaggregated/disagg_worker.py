@@ -2,12 +2,15 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import asyncio
 import os
+import re
 import time
+from typing import Optional
 
 import msgspec
 import numpy as np
 import zmq
 import zmq.asyncio
+from prometheus_client import generate_latest
 
 from vllm.disaggregated.protocol import (FailureResponse, GenerationRequest,
                                          GenerationResponse, HeartbeatRequest,
@@ -15,8 +18,10 @@ from vllm.disaggregated.protocol import (FailureResponse, GenerationRequest,
                                          ResponseType)
 from vllm.engine.protocol import EngineClient
 from vllm.logger import init_logger
+from vllm.v1.metrics.prometheus import get_prometheus_registry
 
 TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED", "0") == "1"
+VLLM_LOG_STATS_INTERVAL = float(os.getenv("VLLM_LOG_STATS_INTERVAL", "10"))
 
 logger = init_logger(__name__)
 
@@ -28,6 +33,7 @@ class DisaggWorker:
         engine: EngineClient,
         address: str,
         proxy_addr: str,
+        ec_role: str,
     ):
         self.engine = engine
 
@@ -43,7 +49,7 @@ class DisaggWorker:
         self.decoder_heartbeat = msgspec.msgpack.Decoder(HeartbeatRequest)
         self.decoder_abort = msgspec.msgpack.Decoder(GenerationRequest)
         self.encoder = msgspec.msgpack.Encoder()
-
+        self.ec_role = ec_role
         self.running_requests: set[asyncio.Task] = set()
 
     def shutdown(self):
@@ -56,15 +62,40 @@ class DisaggWorker:
         if os.path.exists(socket_path):
             os.remove(socket_path)
 
+    async def _do_log_stats(self) -> None:
+        while True:
+            logger.info("ec_role: %s", self.ec_role)
+            await self.engine.do_log_stats()
+            await asyncio.sleep(VLLM_LOG_STATS_INTERVAL)
+
+    async def _force_log(self,
+                         filter_keys: Optional[list[str]] = None) -> None:
+        while True:
+            metrics_text = generate_latest(
+                registry=get_prometheus_registry()).decode("utf-8")
+            parse_result = parse_histograms(metrics_text,
+                                            filter_keys=filter_keys)
+            logger.info("ec_role: %s, metrics: %s", self.ec_role, parse_result)
+            await asyncio.sleep(VLLM_LOG_STATS_INTERVAL)
+
     async def run_busy_loop(self):
         logger.info("DisaggWorker is ready To handle requests.")
 
         poller = zmq.asyncio.Poller()
         poller.register(self.from_proxy, zmq.POLLIN)
-
         while True:
             req_type, req_data = await self.from_proxy.recv_multipart()
             await self._handle_request(req_type, req_data)
+            if TIMECOUNT_ENABLED:
+                filter_keys = [
+                    "e2e_request_latency_seconds",
+                    "request_queue_time_seconds",
+                    "encoder_consume_time_seconds",
+                    "request_prefill_time_seconds"
+                ]
+                self._add_managed_task(self._do_log_stats())
+                self._add_managed_task(
+                    self._force_log(filter_keys=filter_keys))
 
     async def _handle_request(self, req_type: bytes, req_data: bytes):
         if req_type == RequestType.ENCODE:
@@ -146,6 +177,12 @@ class DisaggWorker:
             msg = (ResponseType.FAILURE, response_bytes)
             await self.to_proxy.send_multipart(msg, copy=False)
 
+    def _add_managed_task(self, coro) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        self.running_requests.add(task)
+        task.add_done_callback(self.running_requests.discard)
+        return task
+
 
 def _decode_mm_data(mm_data: dict[str, any]) -> dict[str, any]:
     images = mm_data.get("image", [])
@@ -160,3 +197,69 @@ def _decode_mm_data(mm_data: dict[str, any]) -> dict[str, any]:
     if len(decoded_images) == 1:
         decoded_images = decoded_images[0]
     return {"image": decoded_images}
+
+
+def parse_histograms(
+        metrics_text: str,
+        filter_keys: Optional[list[str]] = None) -> dict[str, dict]:
+    """
+    Parse Prometheus metrics text, extract only histogram type data,
+    and optionally filter by metric name (supporting multiple filter keys).
+    Calculates mean value for each histogram: *_sum / *_count
+
+    Args:
+        metrics_text (str): Prometheus metrics raw text
+
+        filter_keys (Optional[List[str]]): 
+        Only keep histograms containing any string in this list (optional)
+
+    Returns:
+        dict: {histogram_name: {'sum': float, 'count': float, 'mean': float}}
+    """
+    histograms = {}  # name -> {sum, count, mean}
+
+    # 1. Find all histogram metric names
+    hist_type_pat = re.compile(r"# TYPE ([\w:]+) histogram")
+    all_hist_names = set(hist_type_pat.findall(metrics_text))
+
+    # 2. For each histogram, find _sum and _count lines
+    for hist_name in all_hist_names:
+        if filter_keys and not any(key in hist_name for key in filter_keys):
+            continue
+        # Match sum, count
+        sum_pat = re.compile(
+            rf"^{re.escape(hist_name)}_sum(\{{[^\}}]*\}})? ([\d\.eE\+-]+)",
+            re.MULTILINE)
+        count_pat = re.compile(
+            rf"^{re.escape(hist_name)}_count(\{{[^\}}]*\}})? ([\d\.eE\+-]+)",
+            re.MULTILINE)
+        sum_match = sum_pat.findall(metrics_text)
+        count_match = count_pat.findall(metrics_text)
+
+        # Support multiple label sets for same histogram name
+        for (sum_labels,
+             sum_value), (count_labels,
+                          count_value) in zip(sum_match, count_match):
+            labels = {}
+            if sum_labels:
+                # Convert to dict
+                for pair in sum_labels.strip("{}").split(","):
+                    if pair:
+                        k, v = pair.split("=")
+                        labels[k.strip()] = v.strip('"')
+            # Calculate mean
+            sum_value = float(sum_value)
+            count_value = float(count_value)
+            mean = sum_value / count_value if count_value > 0 else float("nan")
+            key = hist_name
+            # If labels exist, use labels as part of the key
+            if labels:
+                key = f"{hist_name}|{'|'.join([f'{k}={v}' \
+                                               for k,v in labels.items()])}"
+
+            histograms[key] = {
+                'sum': sum_value,
+                'count': count_value,
+                'mean': mean,
+            }
+    return histograms

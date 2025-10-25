@@ -35,8 +35,6 @@ function start_encoder() {
     VLLM_USE_V1=1 ASCEND_RT_VISIBLE_DEVICES=$dev_id python -m vllm.entrypoints.disaggregated.worker \
         --proxy-addr $proxy_address \
         --worker-addr $address \
-        --metrics-port $metrics_port \
-        --metrics-host $metrics_host \
         --model $MODEL \
         --gpu-memory-utilization $GPU_UTILIZATION_ENCODER \
         --max-num-seqs $MAX_NUM_SEQS_ENCODER \
@@ -64,8 +62,6 @@ function start_pd() {
     VLLM_USE_V1=1 ASCEND_RT_VISIBLE_DEVICES=$dev_id python -m vllm.entrypoints.disaggregated.worker \
         --proxy-addr $proxy_address \
         --worker-addr $address \
-        --metrics-port $metrics_port \
-        --metrics-host $metrics_host \
         --model $MODEL \
         --gpu-memory-utilization $GPU_UTILIZATION_PD \
         --max-num-seqs $MAX_NUM_SEQS_PD \
@@ -188,9 +184,7 @@ chat_with_image() {
         --encode-addr-list $(for ((i=0; i<ENCODER_NUMBER; i++)); do echo -n "${ENCODER_ADDR_PREFIX}_$i "; done) \
         --pd-addr-list $(for ((i=0; i<PD_NUMBER; i++)); do echo -n "${PD_ADDR_PREFIX}_$i "; done) \
         --model-name $MODEL \
-        --image-path $IMAGE_FILE_PATH \
-        --metrics-port $METRICS_PORT \
-        --metrics-host $METRICS_HOST
+        --image-path $IMAGE_FILE_PATH
 }
 
 chat_with_image
