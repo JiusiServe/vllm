@@ -24,8 +24,14 @@ from vllm.attention.layers.chunked_local_attention import ChunkedLocalAttention
 from vllm.compilation.counter import compilation_counter
 from vllm.compilation.cuda_graph import CUDAGraphWrapper
 from vllm.compilation.monitor import set_cudagraph_capturing_enabled
-from vllm.config import (CompilationLevel, CUDAGraphMode, VllmConfig,
-                         get_layers_from_vllm_config, update_config)
+from vllm.config import (
+    CompilationMode,
+    CUDAGraphMode,
+    VllmConfig,
+    get_layers_from_vllm_config,
+    update_config,
+)
+from vllm.distributed.ec_transfer import get_ec_transfer, has_ec_transfer
 from vllm.distributed.eplb.eplb_state import EplbState
 from vllm.distributed.kv_transfer import (get_kv_transfer_group,
                                           has_kv_transfer_group)
@@ -73,21 +79,31 @@ from vllm.v1.attention.backends.utils import (
     create_fast_prefill_custom_backend,
     reorder_batch_to_split_decodes_and_prefills, split_attn_metadata)
 from vllm.v1.cudagraph_dispatcher import CudagraphDispatcher
-# yapf conflicts with isort for this block
-# yapf: disable
-from vllm.v1.kv_cache_interface import (AttentionSpec,
-                                        ChunkedLocalAttentionSpec,
-                                        CrossAttentionSpec,
-                                        EncoderOnlyAttentionSpec,
-                                        FullAttentionSpec, KVCacheConfig,
-                                        KVCacheGroupSpec, KVCacheSpec,
-                                        MambaSpec, MLAAttentionSpec,
-                                        SlidingWindowSpec,
-                                        UniformTypeKVCacheSpecs)
-# yapf: enable
-from vllm.v1.outputs import (EMPTY_MODEL_RUNNER_OUTPUT, AsyncModelRunnerOutput,
-                             DraftTokenIds, LogprobsLists, LogprobsTensors,
-                             ModelRunnerOutput, PoolerOutput, SamplerOutput)
+from vllm.v1.kv_cache_interface import (
+    AttentionSpec,
+    ChunkedLocalAttentionSpec,
+    CrossAttentionSpec,
+    EncoderOnlyAttentionSpec,
+    FullAttentionSpec,
+    KVCacheConfig,
+    KVCacheGroupSpec,
+    KVCacheSpec,
+    MambaSpec,
+    SlidingWindowSpec,
+    UniformTypeKVCacheSpecs,
+)
+from vllm.v1.outputs import (
+    EMPTY_MODEL_RUNNER_OUTPUT,
+    AsyncModelRunnerOutput,
+    DraftTokenIds,
+    ECConnectorOutput,
+    LogprobsLists,
+    LogprobsTensors,
+    ModelRunnerOutput,
+    PoolerOutput,
+    SamplerOutput,
+    make_empty_encoder_model_runner_output,
+)
 from vllm.v1.pool.metadata import PoolingMetadata
 from vllm.v1.sample.logits_processor import LogitsProcessors, build_logitsprocs
 from vllm.v1.sample.metadata import SamplingMetadata
@@ -99,6 +115,8 @@ from vllm.v1.spec_decode.metadata import SpecDecodeMetadata
 from vllm.v1.spec_decode.ngram_proposer import NgramProposer
 from vllm.v1.structured_output.utils import apply_grammar_bitmask
 from vllm.v1.utils import CpuGpuBuffer, record_function_or_nullcontext
+from vllm.v1.worker.dp_utils import coordinate_batch_across_dp
+from vllm.v1.worker.ec_connector_model_runner_mixin import ECConnectorModelRunnerMixin
 from vllm.v1.worker.gpu_input_batch import CachedRequestState, InputBatch
 from vllm.v1.worker.gpu_ubatch_wrapper import UBatchWrapper
 from vllm.v1.worker.kv_connector_model_runner_mixin import (
@@ -173,8 +191,9 @@ class AsyncGPUModelRunnerOutput(AsyncModelRunnerOutput):
         return output
 
 
-class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
-
+class GPUModelRunner(
+    LoRAModelRunnerMixin, KVConnectorModelRunnerMixin, ECConnectorModelRunnerMixin
+):
     def __init__(
         self,
         vllm_config: VllmConfig,
@@ -1602,6 +1621,8 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 output,
                 is_embed=pos_info.is_embed,
             )
+            logger.debug("Finish execute for mm hash %s", mm_hash)
+            self.maybe_save_ec_to_connector(self.encoder_cache, mm_hash)
 
     def _gather_mm_embeddings(
         self,
@@ -1946,13 +1967,17 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
     def _preprocess(
         self,
         scheduler_output: "SchedulerOutput",
-        intermediate_tensors: Optional[IntermediateTensors] = None,
-        ubatch_slices: Optional[UBatchSlices] = None,
-        num_tokens_after_padding: Optional[torch.Tensor] = None,
-    ) -> tuple[int, int, Optional[torch.Tensor], Optional[torch.Tensor],
-               Optional[torch.Tensor], torch.Tensor,
-               Optional[IntermediateTensors], dict[str, Any]]:
-
+        num_input_tokens: int,  # Padded
+        intermediate_tensors: IntermediateTensors | None = None,
+    ) -> tuple[
+        int,
+        torch.Tensor | None,
+        torch.Tensor | None,
+        torch.Tensor,
+        IntermediateTensors | None,
+        dict[str, Any],
+        ECConnectorOutput | None,
+    ]:
         num_scheduled_tokens = scheduler_output.total_num_scheduled_tokens
         if ubatch_slices:
             assert num_tokens_after_padding is not None
@@ -1966,11 +1991,20 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
 
         # _prepare_inputs may reorder the batch, so we must gather multi
         # modal outputs after that to ensure the correct order
-        if (self.supports_mm_inputs and get_pp_group().is_first_rank
-                and not self.model_config.is_encoder_decoder):
+        ec_connector_output = None
+
+        if (
+            self.supports_mm_inputs
+            and is_first_rank
+            and not self.model_config.is_encoder_decoder
+        ):
             # Run the multimodal encoder if any.
-            self._execute_mm_encoder(scheduler_output)
-            mm_embeds = self._gather_mm_embeddings(scheduler_output)
+            with self.maybe_get_ec_connector_output(
+                scheduler_output,
+                encoder_cache=self.encoder_cache,
+            ) as ec_connector_output:
+                self._execute_mm_encoder(scheduler_output)
+                mm_embeds, is_mm_embed = self._gather_mm_embeddings(scheduler_output)
 
             # NOTE(woosuk): To unify token ids and soft tokens (vision
             # embeddings), we always use embeddings (rather than token ids)
@@ -2049,6 +2083,7 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
             positions,
             intermediate_tensors,
             model_kwargs,
+            ec_connector_output,
         )
 
     def _sample(
@@ -2238,6 +2273,14 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 # Update persistent batch states.
                 self._update_states(scheduler_output)
 
+                if has_ec_transfer() and get_ec_transfer().is_producer:
+                    with self.maybe_get_ec_connector_output(
+                        scheduler_output,
+                        encoder_cache=self.encoder_cache,
+                    ) as ec_connector_output:
+                        self._execute_mm_encoder(scheduler_output)
+                        return make_empty_encoder_model_runner_output(scheduler_output)
+
                 if not scheduler_output.total_num_scheduled_tokens:
                     if not has_kv_transfer_group():
                         # Return empty ModelRunnerOutput if no work to do.
@@ -2265,8 +2308,10 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 positions,
                 intermediate_tensors,
                 model_kwargs,
-            ) = self._preprocess(scheduler_output, intermediate_tensors,
-                                 ubatch_slices, num_tokens_after_padding)
+                ec_connector_output,
+            ) = self._preprocess(
+                scheduler_output, num_input_tokens, intermediate_tensors
+            )
 
             uniform_decode = (max_query_len
                               == self.uniform_decode_query_len) and (
@@ -2431,6 +2476,9 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
             prompt_logprobs_dict=prompt_logprobs_dict,
             pooler_output=[],
             kv_connector_output=kv_connector_output,
+            ec_connector_output=ec_connector_output
+            if self.supports_mm_inputs
+            else None,
             num_nans_in_logits=num_nans_in_logits,
         )
 
@@ -4047,6 +4095,8 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
         block_size = self.vllm_config.cache_config.block_size
         use_mla = self.vllm_config.model_config.use_mla
         cache_dtype_str = self.vllm_config.cache_config.cache_dtype
+        if has_ec_transfer() and get_ec_transfer().is_producer:
+            return {}
         kv_cache_spec: dict[str, KVCacheSpec] = {}
         attn_layers = get_layers_from_vllm_config(self.vllm_config, Attention)
         for layer_name, attn_module in attn_layers.items():
