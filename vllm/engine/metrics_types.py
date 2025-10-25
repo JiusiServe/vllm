@@ -54,7 +54,7 @@ class Stats:
     time_inference_requests: List[float]
     time_prefill_requests: List[float]
     time_decode_requests: List[float]
-    time_encoder_consume_requests: Optional[List[float]] = None
+
     #   Metadata
     num_prompt_tokens_requests: List[int]
     num_generation_tokens_requests: List[int]
@@ -66,6 +66,7 @@ class Stats:
     running_lora_adapters: List[str]
     max_lora: str
 
+    time_encoder_consume_requests: Optional[List[float]] = None
     spec_decode_metrics: Optional["SpecDecodeWorkerMetrics"] = None
 
 

@@ -14,6 +14,7 @@ import zmq.asyncio
 
 from vllm.config import DecodingConfig, ModelConfig, VllmConfig
 from vllm.core.scheduler import SchedulerOutputs
+from vllm.disaggregated.disagg_worker import TIMECOUNT_ENABLED
 from vllm.disaggregated.protocol import (FailureResponse, GenerationRequest,
                                          GenerationResponse, HeartbeatRequest,
                                          HeartbeatResponse, RequestType,
@@ -22,7 +23,6 @@ from vllm.disaggregated.reqeust_stats import RequestStatsMonitor
 from vllm.disaggregated.routing_logic import RandomRouter, RoutingInterface
 from vllm.disaggregated.service_discovery import HealthCheckServiceDiscovery
 from vllm.engine.protocol import EngineClient
-from vllm.entrypoints.disaggregated.worker import TIMECOUNT_ENABLED
 from vllm.inputs.data import PromptType
 from vllm.inputs.preprocess import InputPreprocessor
 from vllm.logger import init_logger

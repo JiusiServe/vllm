@@ -254,8 +254,8 @@ def parse_histograms(
             key = hist_name
             # If labels exist, use labels as part of the key
             if labels:
-                key = f"{hist_name}|{'|'.join([f'{k}={v}' \
-                                               for k,v in labels.items()])}"
+                key = (f"{hist_name}|"
+                       f"{'|'.join([f'{k}={v}' for k, v in labels.items()])}")
 
             histograms[key] = {
                 'sum': sum_value,

@@ -5,15 +5,11 @@ import asyncio
 import uuid
 
 import numpy as np
-import requests
 from PIL import Image
-from prometheus_client import start_http_server
 
 from vllm import SamplingParams
 from vllm.disaggregated.proxy import Proxy
-from vllm.entrypoints.disaggregated.worker import TIMECOUNT_ENABLED, _find_free_port
 from vllm.logger import init_logger
-from vllm.v1.metrics.prometheus import get_prometheus_registry
 
 logger = init_logger(__name__)
 
@@ -56,23 +52,6 @@ async def run_single_request(i, prompt, image_array, sampling_params, p):
 
 
 async def main():
-    # metrics
-    if TIMECOUNT_ENABLED:
-        metrics_port = _find_free_port(args.metrics_port)
-        if metrics_port is not None:
-            start_http_server(
-                metrics_port, addr=args.metrics_host, registry=get_prometheus_registry()
-            )
-            print(
-                f"Started proxy prometheus metrics server on "
-                f"{args.metrics_host}:{metrics_port}"
-            )
-        else:
-            print(
-                f"No free port found in range [{args.metrics_port},"
-                f" {args.metrics_port + 50}). Metrics exporter disabled."
-            )
-
     # new proxy
     p = Proxy(
         proxy_addr=args.proxy_addr,
@@ -97,24 +76,6 @@ async def main():
         for i in range(10)
     ]
     await asyncio.gather(*tasks)
-
-    if TIMECOUNT_ENABLED and metrics_port is not None:  # type: ignore
-        url = f"http://{args.metrics_host}:{metrics_port}/metrics"  # type: ignore
-        try:
-            r = requests.get(url, timeout=3)
-            print(f"=== GET {url} ===")
-            print(r.text)
-        except Exception:
-            pass
-
-    if TIMECOUNT_ENABLED and metrics_port is not None:  # type: ignore
-        url = f"http://{args.metrics_host}:{metrics_port}/metrics"  # type: ignore
-        try:
-            r = requests.get(url, timeout=3)
-            print(f"=== GET {url} ===")
-            print(r.text)
-        except Exception:
-            pass
 
 
 if __name__ == "__main__":
