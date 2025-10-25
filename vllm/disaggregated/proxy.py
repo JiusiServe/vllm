@@ -35,7 +35,8 @@ from vllm.transformers_utils.tokenizer_group import TokenizerGroup
 from vllm.utils import Device
 from vllm.v1.outputs import SamplerOutput
 
-TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED", "0") == "1"
+TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED",
+                              "0") in ("1", "true", "True")
 
 logger = init_logger(__name__)
 

@@ -13,7 +13,8 @@ from vllm.distributed.ec_transfer.ec_connector.base import (
 from vllm.logger import init_logger
 from vllm.v1.core.sched.output import SchedulerOutput
 
-TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED", "0") == "1"
+TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED",
+                              "0") in ("1", "true", "True")
 
 if TYPE_CHECKING:
     from vllm.v1.request import Request

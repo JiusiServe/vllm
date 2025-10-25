@@ -20,7 +20,8 @@ from vllm.engine.protocol import EngineClient
 from vllm.logger import init_logger
 from vllm.v1.metrics.prometheus import get_prometheus_registry
 
-TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED", "0") == "1"
+TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED",
+                              "0") in ("1", "true", "True")
 VLLM_LOG_STATS_INTERVAL = float(os.getenv("VLLM_LOG_STATS_INTERVAL", "10"))
 
 logger = init_logger(__name__)
