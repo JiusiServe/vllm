@@ -86,7 +86,8 @@ class DisaggWorker:
         if TIMECOUNT_ENABLED:
             filter_keys = [
                 "e2e_request_latency_seconds", "request_queue_time_seconds",
-                "encoder_consume_time_seconds", "request_prefill_time_seconds"
+                "encoder_consume_time_seconds",
+                "time_per_output_token_seconds", "request_prefill_time_seconds"
             ]
             self._add_managed_task(self._do_log_stats())
             self._add_managed_task(self._force_log(filter_keys=filter_keys))
