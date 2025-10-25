@@ -75,7 +75,7 @@ class DisaggWorker:
                 registry=get_prometheus_registry()).decode("utf-8")
             parse_result = parse_histograms(metrics_text,
                                             filter_keys=filter_keys)
-            logger.info("ec_role: %s metrics:%s", self.ec_role, parse_result)
+            logger.info("DisaggWorker metrics:%s", parse_result)
             await asyncio.sleep(VLLM_LOG_STATS_INTERVAL)
 
     async def run_busy_loop(self):
@@ -83,19 +83,16 @@ class DisaggWorker:
 
         poller = zmq.asyncio.Poller()
         poller.register(self.from_proxy, zmq.POLLIN)
+        if TIMECOUNT_ENABLED:
+            filter_keys = [
+                "e2e_request_latency_seconds", "request_queue_time_seconds",
+                "encoder_consume_time_seconds", "request_prefill_time_seconds"
+            ]
+            self._add_managed_task(self._do_log_stats())
+            self._add_managed_task(self._force_log(filter_keys=filter_keys))
         while True:
             req_type, req_data = await self.from_proxy.recv_multipart()
             await self._handle_request(req_type, req_data)
-            if TIMECOUNT_ENABLED:
-                filter_keys = [
-                    "e2e_request_latency_seconds",
-                    "request_queue_time_seconds",
-                    "encoder_consume_time_seconds",
-                    "request_prefill_time_seconds"
-                ]
-                self._add_managed_task(self._do_log_stats())
-                self._add_managed_task(
-                    self._force_log(filter_keys=filter_keys))
 
     async def _handle_request(self, req_type: bytes, req_data: bytes):
         if req_type == RequestType.ENCODE:
