@@ -75,9 +75,7 @@ class DisaggWorker:
                 registry=get_prometheus_registry()).decode("utf-8")
             parse_result = parse_histograms(metrics_text,
                                             filter_keys=filter_keys)
-            metrics_str = "\n".join(
-                [f"{k}: {v}" for k, v in parse_result.items()])
-            logger.info("ec_role: %s\nmetrics:\n%s", self.ec_role, metrics_str)
+            logger.info("ec_role: %s metrics:%s", self.ec_role, parse_result)
             await asyncio.sleep(VLLM_LOG_STATS_INTERVAL)
 
     async def run_busy_loop(self):
@@ -248,7 +246,8 @@ def parse_histograms(
                 for pair in sum_labels.strip("{}").split(","):
                     if pair:
                         k, v = pair.split("=")
-                        labels[k.strip()] = v.strip('"')
+                        if k.strip() != "model_name":
+                            labels[k.strip()] = v.strip('"')
             # Calculate mean
             sum_value = float(sum_value)
             count_value = float(count_value)
@@ -260,7 +259,7 @@ def parse_histograms(
                        f"{'|'.join([f'{k}={v}' for k, v in labels.items()])}")
 
             histograms[key] = {
-                'sum': sum_value,
+                # 'sum': sum_value,
                 'count': count_value,
                 'mean': mean,
             }
