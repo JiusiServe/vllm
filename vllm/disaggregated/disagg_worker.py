@@ -78,7 +78,6 @@ class DisaggWorker:
             metrics_str = "\n".join(
                 [f"{k}: {v}" for k, v in parse_result.items()])
             logger.info("ec_role: %s\nmetrics:\n%s", self.ec_role, metrics_str)
-            logger.info("ec_role: %s, metrics: %s", self.ec_role, parse_result)
             await asyncio.sleep(VLLM_LOG_STATS_INTERVAL)
 
     async def run_busy_loop(self):
