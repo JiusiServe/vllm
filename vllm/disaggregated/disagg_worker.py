@@ -65,7 +65,6 @@ class DisaggWorker:
 
     async def _do_log_stats(self) -> None:
         while True:
-            logger.info("ec_role: %s", self.ec_role)
             await self.engine.do_log_stats()
             await asyncio.sleep(VLLM_LOG_STATS_INTERVAL)
 
@@ -76,6 +75,9 @@ class DisaggWorker:
                 registry=get_prometheus_registry()).decode("utf-8")
             parse_result = parse_histograms(metrics_text,
                                             filter_keys=filter_keys)
+            metrics_str = "\n".join(
+                [f"{k}: {v}" for k, v in parse_result.items()])
+            logger.info("ec_role: %s\nmetrics:\n%s", self.ec_role, metrics_str)
             logger.info("ec_role: %s, metrics: %s", self.ec_role, parse_result)
             await asyncio.sleep(VLLM_LOG_STATS_INTERVAL)
 
