@@ -14,7 +14,6 @@ import zmq.asyncio
 
 from vllm.config import DecodingConfig, ModelConfig, VllmConfig
 from vllm.core.scheduler import SchedulerOutputs
-from vllm.disaggregated.disagg_worker import TIMECOUNT_ENABLED
 from vllm.disaggregated.protocol import (FailureResponse, GenerationRequest,
                                          GenerationResponse, HeartbeatRequest,
                                          HeartbeatResponse, RequestType,
@@ -35,6 +34,8 @@ from vllm.transformers_utils.tokenizer import AnyTokenizer
 from vllm.transformers_utils.tokenizer_group import TokenizerGroup
 from vllm.utils import Device
 from vllm.v1.outputs import SamplerOutput
+
+TIMECOUNT_ENABLED = os.getenv("TIMECOUNT_ENABLED", "0") == "1"
 
 logger = init_logger(__name__)
 
