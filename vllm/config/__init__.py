@@ -8,6 +8,7 @@ from vllm.config.compilation import (
     CUDAGraphMode,
     PassConfig,
 )
+from vllm.config.afd import AFDConfig
 from vllm.config.device import DeviceConfig
 from vllm.config.kv_events import KVEventsConfig
 from vllm.config.kv_transfer import KVTransferConfig

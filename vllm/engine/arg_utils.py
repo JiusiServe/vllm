@@ -68,18 +68,28 @@ from vllm.config.multimodal import MMCacheType, MMEncoderTPMode
 from vllm.config.observability import DetailedTraceModules
 from vllm.config.parallel import DistributedExecutorBackend, ExpertPlacementStrategy
 from vllm.config.scheduler import SchedulerPolicy
-from vllm.config import (AFDConfig, BlockSize, CacheConfig, CacheDType,
-                         CompilationConfig, ConfigType, ConvertOption,
-                         DecodingConfig, DetailedTraceModules, Device,
-                         DeviceConfig, DistributedExecutorBackend, EPLBConfig,
-                         GuidedDecodingBackend, HfOverrides, KVEventsConfig,
-                         KVTransferConfig, LoadConfig, LogprobsMode,
-                         LoRAConfig, MambaDType, MMEncoderTPMode, ModelConfig,
-                         ModelDType, ModelImpl, ObservabilityConfig,
-                         ParallelConfig, PoolerConfig, PrefixCachingHashAlgo,
-                         RunnerOption, SchedulerConfig, SchedulerPolicy,
-                         SpeculativeConfig, TaskOption, TokenizerMode,
-                         VllmConfig, get_attr_docs)
+from vllm.config import (
+    AFDConfig,
+    CacheConfig,
+    CompilationConfig,
+    ConfigType,
+    DeviceConfig,
+    EPLBConfig,
+    KVEventsConfig,
+    KVTransferConfig,
+    LoadConfig,
+    LoRAConfig,
+    ModelConfig,
+    MultiModalConfig,
+    ObservabilityConfig,
+    ParallelConfig,
+    PoolerConfig,
+    SchedulerConfig,
+    SpeculativeConfig,
+    StructuredOutputsConfig,
+    VllmConfig,
+    get_attr_docs,
+)
 from vllm.config.multimodal import MMCacheType, MultiModalConfig
 from vllm.config.utils import get_field
 from vllm.logger import init_logger
@@ -543,7 +553,7 @@ class EngineArgs:
     kv_sharing_fast_prefill: bool = CacheConfig.kv_sharing_fast_prefill
 
     # AFD config
-    afd_config: Optional[AFDConfig] = None
+    afd_config: AFDConfig | None = None
 
     def __post_init__(self):
         # support `EngineArgs(compilation_config={...})`
@@ -1078,8 +1088,9 @@ class EngineArgs:
         # Get the list of attributes of this dataclass.
         attrs = [attr.name for attr in dataclasses.fields(cls)]
         # Set the attributes from the parsed arguments.
-        engine_args_dict = {attr: getattr(args, attr) for attr in attrs}
-        engine_args = cls(**engine_args_dict)
+        engine_args = cls(
+            **{attr: getattr(args, attr) for attr in attrs if hasattr(args, attr)}
+        )
         return engine_args
 
     def create_model_config(self) -> ModelConfig:

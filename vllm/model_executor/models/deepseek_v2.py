@@ -27,7 +27,7 @@
 import typing
 from collections.abc import Callable, Iterable
 from itertools import islice
-from typing import Any
+from typing import Any, Optional, Union
 
 import torch
 from torch import nn
@@ -100,6 +100,7 @@ from .utils import (
     make_layers,
     maybe_prefix,
 )
+from vllm.utils import current_stream
 
 if current_platform.is_cuda_alike():
     from vllm import _custom_ops as ops
@@ -108,6 +109,8 @@ elif current_platform.is_xpu():
 
 logger = init_logger(__name__)
 
+from vllm.v1.worker.ubatching import dbo_current_ubatch_id, dbo_yield, dbo_enabled
+from vllm.forward_context import AFDMetadata
 
 class DeepseekV2MLP(nn.Module):
     def __init__(
@@ -1067,7 +1070,7 @@ class DeepseekV2DecoderLayer(nn.Module):
         parallel_config = vllm_config.parallel_config
 
         afd_config = vllm_config.afd_config
-        self.role = afd_config.afd_role
+        self.role = afd_config.afd_role if afd_config is not None else None
         self.hidden_size = config.hidden_size
         rope_theta = getattr(config, "rope_theta", 10000)
         rope_scaling = getattr(config, "rope_scaling", None)
@@ -1107,20 +1110,17 @@ class DeepseekV2DecoderLayer(nn.Module):
             ):
                 self.mlp = DeepseekV2MoE(
                     config=config,
-                    hidden_size=self.hidden_size,
-                    num_heads=config.num_attention_heads,
-                    qk_nope_head_dim=config.qk_nope_head_dim,
-                    qk_rope_head_dim=config.qk_rope_head_dim,
-                    v_head_dim=config.v_head_dim,
-                    q_lora_rank=config.q_lora_rank
-                    if hasattr(config, "q_lora_rank") else None,
-                    kv_lora_rank=config.kv_lora_rank,
-                    rope_theta=rope_theta,
-                    rope_scaling=rope_scaling,
-                    max_position_embeddings=max_position_embeddings,
-                    cache_config=cache_config,
+                    parallel_config=parallel_config,
                     quant_config=quant_config,
-                    prefix=f"{prefix}.self_attn",
+                    prefix=f"{prefix}.mlp",
+                )
+            else:
+                self.mlp = DeepseekV2MLP(
+                    hidden_size=config.hidden_size,
+                    intermediate_size=config.intermediate_size,
+                    hidden_act=config.hidden_act,
+                    quant_config=quant_config,
+                    prefix=f"{prefix}.mlp",
                 )
         self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(
@@ -1135,12 +1135,6 @@ class DeepseekV2DecoderLayer(nn.Module):
         residual: torch.Tensor | None,
     ) -> torch.Tensor:
         # Self Attention
-        forward_ctx = get_forward_context()
-        afd_metadata = (forward_ctx.afd_metadata
-                        if forward_ctx is not None else None)
-        afd_connector = afd_metadata.afd_connector
-        logger.info(f"attn decode layer :{self.layer_idx}")
-        logger.info(f"hidden states type: {type(hidden_states)}")
         if residual is None:
             residual = hidden_states.clone()
             hidden_states = self.input_layernorm(hidden_states)
@@ -1165,8 +1159,6 @@ class DeepseekV2DecoderLayer(nn.Module):
         hidden_states, residual = self.post_attention_layernorm(
             hidden_states, residual)
         if self.role == "attention":
-            #afd_connector.send_attn_output(hidden_states, None)
-            #hidden_states, _ = afd_connector.recv_ffn_output()
             return hidden_states, residual
 
         hidden_states = self.mlp(hidden_states)
@@ -1212,19 +1204,10 @@ class DeepseekV2DecoderLayer(nn.Module):
         hidden_states, residual = self.post_attention_layernorm(
             hidden_states, residual)
 
-        # afd_connector = get_afd_connector()
-        # afd_connector.send_attn_output(
-        #         IntermediateTensors({
-        #             "hidden_states": hidden_states,
-        #         }))
-        # hidden_states = afd_connector.recv_ffn_output(
-        #     )['hidden_states']
         return hidden_states, residual
 
     def compute_ffn_output(self, hidden_states):
         assert self.role == "ffn"
-        # afd_connector = get_afd_connector()
-        # hidden_states = afd_connector.recv_attn_output()
         hidden_states = self.mlp(hidden_states)
         if isinstance(self.mlp,
                       DeepseekV2MLP) and hidden_states.dtype == torch.float16:
@@ -1235,7 +1218,6 @@ class DeepseekV2DecoderLayer(nn.Module):
             # of DeepseekV2MOE
             hidden_states *= 1. / self.routed_scaling_factor
         return hidden_states
-        # afd_connector.send_ffn_output(hidden_states, None)
 
 @support_torch_compile
 class DeepseekV2Model(nn.Module):
@@ -1287,8 +1269,53 @@ class DeepseekV2Model(nn.Module):
             ["hidden_states", "residual"], config.hidden_size
         )
 
+        self.profiler = torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(wait=2, warmup=1, active=10, repeat=1),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler('./profiler_logs/attn'),
+            record_shapes=True,
+            profile_memory=False,
+            with_stack=False
+        )
+
     def get_input_embeddings(self, input_ids: torch.Tensor) -> torch.Tensor:
         return self.embed_tokens(input_ids)
+    
+    def forward_with_afd(
+        self,
+        hidden_states: torch.Tensor,
+        residual: torch.Tensor,
+        positions: torch.Tensor,
+        afd_metadata: AFDMetadata
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        recv_handle = None
+        for layer in islice(self.layers, self.start_layer, self.end_layer):
+            logger.info(f"jcz deepseekv2 layer_idx:{layer.layer_idx} metadata:{afd_metadata} hidden_states:{hidden_states.shape}")
+            afd_connector = afd_metadata.afd_connector
+            afd_metadata.afd_stage_idx = dbo_current_ubatch_id()
+            start_idx = afd_metadata.afd_tokens_start_loc[afd_metadata.afd_stage_idx]
+            end_idx = start_idx + afd_metadata.afd_tokens_lens[afd_metadata.afd_stage_idx]
+            logger.info(f"jcz deepseekv2 layer_idx:{layer.layer_idx} start_loc:{afd_metadata.afd_tokens_start_loc} "
+                        f"start_idx:{start_idx} end_idx:{end_idx} "
+                        f"stage_idx:{afd_metadata.afd_stage_idx}")
+            if recv_handle is not None:
+                for work in recv_handle:
+                    work.wait()
+            current_hidden, residual = layer(positions, hidden_states, residual)
+            metadata = AFDConnectorMetadata.create_attention_metadata(
+                layer_idx=layer.layer_idx,
+                stage_idx=afd_metadata.afd_stage_idx,
+                seq_len=current_hidden.shape[0],
+                dtype=current_hidden.dtype,
+                device=current_hidden.device,
+            )
+            afd_connector.send_attn_output(current_hidden, metadata)
+            hidden_states, recv_metadata = afd_connector.recv_ffn_output()
+            if recv_metadata.recv_handle_list is not None:
+                recv_handle = recv_metadata.recv_handle_list
+            if dbo_enabled():
+                dbo_yield()
+        return hidden_states, residual
 
     def forward(
         self,
@@ -1311,55 +1338,11 @@ class DeepseekV2Model(nn.Module):
         forward_ctx = get_forward_context()
         afd_metadata = (forward_ctx.afd_metadata
                         if forward_ctx is not None else None)
-
-        for layer in islice(self.layers, self.start_layer, self.end_layer):
-            if afd_metadata != None and len(afd_metadata.afd_tokens_start_loc) - 1 > 1:
-                afd_connector = afd_metadata.afd_connector
-                num_stages = len(afd_metadata.afd_tokens_start_loc) - 1
-                stage_hidden_states: list[torch.Tensor] = []
-                stage_residual: list[Optional[torch.Tensor]] = []
-                stage_positions: list[torch.Tensor] = []
-
-                for stage_idx in range(num_stages):
-                    start = afd_metadata.afd_tokens_start_loc[stage_idx]
-                    end = start + afd_metadata.afd_tokens_lens[stage_idx]
-                    stage_hidden_states.append(hidden_states[start:end].clone())
-                    stage_residual.append(residual[start:end].clone(
-                    ) if residual is not None else None)
-                    stage_positions.append(positions[start:end])
-
-                    afd_metadata.afd_stage_idx = stage_idx
-                    current_hidden = stage_hidden_states[stage_idx]
-                    current_residual = stage_residual[stage_idx]
-                    current_positions = stage_positions[stage_idx]
-                    current_hidden, current_residual = \
-                        layer(current_positions, current_hidden, current_residual)
-                    metadata = AFDConnectorMetadata.create_attention_metadata(
-                        layer_idx=layer.layer_idx,
-                        stage_idx=stage_idx,
-                        seq_len=current_hidden.shape[0],
-                        dtype=current_hidden.dtype,
-                        device=current_hidden.device,
-                    )
-                    afd_connector.send_attn_output(current_hidden, metadata)
-                    recv_hidden,_ = afd_connector.recv_ffn_output()
-                    stage_hidden_states[stage_idx].copy_(recv_hidden)
-                    stage_residual[stage_idx] = current_residual
-
-                hidden_states = torch.cat([
-                    stage_hidden_states[i][:afd_metadata.afd_tokens_lens[i]]
-                    for i in range(num_stages)],dim=0)
-
-                if stage_residual[0] is not None:
-                    residual = torch.cat([
-                        stage_residual[i][:afd_metadata.afd_tokens_lens[i]]
-                        if stage_residual[i] is not None else
-                        stage_hidden_states[i][:afd_metadata.afd_tokens_lens[i]]
-                        for i in range(num_stages)],dim=0)
-                else:
-                    residual = None
-
-            else:
+        if afd_metadata != None:
+            hidden_states, residual = self.forward_with_afd(hidden_states, residual,
+                                                            positions, afd_metadata)
+        else:
+            for layer in islice(self.layers, self.start_layer, self.end_layer):
                 hidden_states, residual = layer(positions, hidden_states, residual)
 
         if not get_pp_group().is_last_rank:
@@ -1376,10 +1359,7 @@ class DeepseekV2Model(nn.Module):
         layer_idx
     ) -> Union[torch.Tensor, IntermediateTensors]:
         hidden_states = self.layers[layer_idx].compute_ffn_output(hidden_states)
-        #for layer in islice(self.layers, self.start_layer, self.end_layer):
-        #    hidden_states = layer.compute_ffn_output(hidden_states)
         return hidden_states
-
 
 
 class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts, SupportsLoRA):
@@ -1394,6 +1374,7 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts, SupportsLoR
         self.config = config
         self.quant_config = quant_config
         self.afd_config = vllm_config.afd_config
+        self.afd_role = self.afd_config.afd_role if self.afd_config is not None else None
         # `packed_modules_mapping` needs to be modified before
         # initializing DeepseekV2Model, as it is passed inplace to
         # quantization config init and may be used to select the
@@ -1436,14 +1417,13 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts, SupportsLoR
                 continue
 
             assert isinstance(layer, DeepseekV2DecoderLayer)
-            if (self.afd_config.afd_role is None or self.afd_config.afd_role == "ffn") and isinstance(
-                layer.mlp, DeepseekV2MoE):
-            #if isinstance(layer.mlp, DeepseekV2MoE):
+            if (self.afd_role is None or self.afd_role == "ffn") and \
+                isinstance(layer.mlp, DeepseekV2MoE):
                 # Pick last one layer since the first ones may be dense layers.
                 example_moe = layer.mlp
                 self.moe_layers.append(layer.mlp.experts)
 
-        if self.afd_config.afd_role == "attention":
+        if self.afd_role == "attention":
             return
         if example_moe is None:
             raise RuntimeError("No DeepseekV2MoE layer found in model.layers.")
@@ -1530,7 +1510,7 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts, SupportsLoR
 
         # Params for weights, fp8 weight scales, fp8 activation scales
         # (param_name, weight_name, expert_id, shard_id)
-        if self.afd_config.afd_role == "attention":
+        if self.afd_role == "attention":
             vllm_config = get_current_vllm_config()
             num_redundant_experts = vllm_config.parallel_config.eplb_config.num_redundant_experts
         else:
@@ -1547,7 +1527,8 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts, SupportsLoR
         for name, loaded_weight in weights:
             if "rotary_emb.inv_freq" in name:
                 continue
-            if self.afd_config.afd_role == "attention" and self.is_moe_weight(name):
+            if self.afd_role == "attention" and \
+                self.is_moe_weight(name):
                 continue
             spec_layer = get_spec_layer_idx_from_weight_name(self.config, name)
             if spec_layer is not None:
@@ -1597,7 +1578,8 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts, SupportsLoR
                     # Anyway, this is an expert weight and should not be
                     # attempted to load as other weights later
                     is_expert_weight = True
-                    if self.afd_config.afd_role is not None and self.afd_config.afd_role == "attention":
+                    if self.afd_role is not None and \
+                        self.afd_role == "attention":
                         continue
                     # Do not modify `name` since the loop may continue here
                     # Instead, create a new variable
@@ -1625,7 +1607,7 @@ class DeepseekV2ForCausalLM(nn.Module, SupportsPP, MixtureOfExperts, SupportsLoR
                         name = name_mapped
                         break
                 else:
-                    if self.afd_config.afd_role == "ffn" and not self.is_moe_weight(
+                    if self.afd_role == "ffn" and not self.is_moe_weight(
                             name) and not self.is_common_weight(name):
                         continue
                     if is_expert_weight:

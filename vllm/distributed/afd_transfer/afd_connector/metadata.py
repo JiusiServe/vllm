@@ -5,7 +5,7 @@ FFN workers."""
 
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 
@@ -21,13 +21,14 @@ class AFDConnectorMetadata:
     # multiple sequences
     dtype: torch.dtype
     device: torch.device
-    topk_idx: Optional[torch.Tensor] # indices token which expert to be sended
-    topk_weights: Optional[torch.Tensor] # the expert weights
-    moe_expert_num: Optional[int] # number of moe experts
-    shared_expert_num: Optional[int] # number of share experts
-    scale: Optional[torch.Tensor] #  quant scale
-    expertTokenNumsOut: Optional[torch.Tensor] # The number of tokens received by each expert is used as input for the subsequent GMM.
-    handle: Optional[torch.Tensor] # the communication handle given by the recv_attn_output function
+    topk_idx: Optional[torch.Tensor] = None # indices token which expert to be sended
+    topk_weights: Optional[torch.Tensor] = None # the expert weights
+    moe_expert_num: Optional[int] = None # number of moe experts
+    shared_expert_num: Optional[int] = None # number of share experts
+    scale: Optional[torch.Tensor] = None #  quant scale
+    expertTokenNumsOut: Optional[torch.Tensor] = None # The number of tokens received by each expert is used as input for the subsequent GMM.
+    send_handle_list: Optional[list[Any]] = None # the communication handles (list of Work objects returned by torch.distributed.isend)
+    recv_handle_list: Optional[list[Any]] = None # the communication handles (list of Work objects returned by torch.distributed.irecv)
 
     # Optional fields for debugging and extensibility
     request_id: Optional[str] = None

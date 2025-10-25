@@ -103,12 +103,10 @@ class DPMetadata:
             tokens per stage
         """
         from vllm.distributed.parallel_state import get_dp_group
+        from vllm.platforms import current_platform
+        import torch.distributed as dist
         device = current_platform.device_type
         group = get_dp_group().device_group
-
-        if envs.VLLM_DISABLE_NCCL_FOR_DP_SYNCHRONIZATION:
-            device = "cpu"
-            group = get_dp_group().cpu_group
 
         num_stages = len(num_stage_tokens)
         stage_tokens_across_dp = torch.zeros((num_stages, dp_size),
@@ -280,6 +278,7 @@ def create_forward_context(
     cudagraph_runtime_mode: CUDAGraphMode = CUDAGraphMode.NONE,
     batch_descriptor: BatchDescriptor | None = None,
     ubatch_slices: UBatchSlices | None = None,
+    afd_metadata: AFDMetadata | None = None
 ):
     return ForwardContext(
         no_compile_layers=vllm_config.compilation_config.static_forward_context,
@@ -289,6 +288,7 @@ def create_forward_context(
         cudagraph_runtime_mode=cudagraph_runtime_mode,
         batch_descriptor=batch_descriptor,
         ubatch_slices=ubatch_slices,
+        afd_metadata=afd_metadata
     )
 
 
@@ -317,7 +317,7 @@ def set_forward_context(
     cudagraph_runtime_mode: CUDAGraphMode = CUDAGraphMode.NONE,
     batch_descriptor: BatchDescriptor | None = None,
     ubatch_slices: UBatchSlices | None = None,
-    afd_metadata: Optional[AFDMetadata] = None
+    afd_metadata: AFDMetadata | None = None
 ):
     """A context manager that stores the current forward context,
     can be attention metadata, etc.

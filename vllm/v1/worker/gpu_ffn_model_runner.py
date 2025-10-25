@@ -10,6 +10,8 @@ import torch.nn as nn
 from vllm.config import VllmConfig
 from vllm.distributed.afd_transfer.afd_connector.factory import (
     AFDConnectorFactory)
+from vllm.distributed.afd_transfer.afd_connector.metadata import (
+    AFDConnectorMetadata)
 from vllm.distributed.communication_op import tensor_model_parallel_all_gather
 from vllm.distributed.parallel_state import (
     get_tensor_model_parallel_rank, get_tensor_model_parallel_world_size,
@@ -43,6 +45,16 @@ class GPUFFNModelRunner(LoRAModelRunnerMixin):
             )
 
         self._counter = 0
+        
+        # Initialize torch.profile for performance monitoring
+        self.profiler = torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(wait=200, warmup=1, active=30, repeat=1),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler('./profiler_logs/ffn'),
+            record_shapes=True,
+            profile_memory=False,
+            with_stack=False
+        )
 
         # Initialize CUDA graph support
         self.use_cuda_graph = not self.model_config.enforce_eager
@@ -110,13 +122,16 @@ class GPUFFNModelRunner(LoRAModelRunnerMixin):
         """Execute FFN computation for a single request"""
         # scheduler_output and intermediate_tensors are unused in FFN server
         # mode
-        current_layer_idx = self._get_current_layer_idx()
+        self.profiler.step()
+
         try:
-            hidden_states, _ = self.connector.recv_attn_output()
-            logger.info("*"*50)
+            hidden_states, recv_metadata = self.connector.recv_attn_output()
+            current_layer_idx = recv_metadata.layer_idx
             logger.info(f"layer {current_layer_idx} moe recv hidden states type:{type(hidden_states)}, shape:{hidden_states.shape}")
             num_tokens = hidden_states.shape[0]
-
+            if recv_metadata is not None and recv_metadata.recv_handle_list is not None:
+                for work in recv_metadata.recv_handle_list:
+                    work.wait()
             # Try to use CUDA graph if available
             cuda_graph_info = self._find_cuda_graph(current_layer_idx,
                                                     num_tokens)
@@ -133,10 +148,11 @@ class GPUFFNModelRunner(LoRAModelRunnerMixin):
                     rank_ffn_output = self._execute_eager_mode(
                         hidden_states, current_layer_idx)
 
-            self.connector.send_ffn_output(rank_ffn_output, None)
+            recv_metadata.recv_handle_list = None
+            self.connector.send_ffn_output(rank_ffn_output, recv_metadata)
         except Exception as e:
             raise ValueError(
-                f"Error computing FFN for layer {current_layer_idx}: {e}"
+                f"Error computing FFN: {e}"
             ) from e
         finally:
             self._counter += 1
@@ -174,8 +190,10 @@ class GPUFFNModelRunner(LoRAModelRunnerMixin):
         return output_tensor[:actual_tokens].clone()
 
     def _execute_eager_mode(self, hidden_states: torch.Tensor,
-                            current_layer_idx: int):
+                            current_layer_idx: int, recv_metadata: AFDConnectorMetadata = None):
         """Execute FFN computation in eager mode (fallback)."""
+        # Step the profiler for performance monitoring
+        
         # Handle TP case: all-gather tensors from all TP ranks
         tp_world_size = get_tensor_model_parallel_world_size()
         if tp_world_size > 1:

@@ -71,3 +71,39 @@ def create_ubatch_slices(
         UBatchSlice(first_ubatch_req_slice, first_ubatch_token_slice),
         UBatchSlice(second_ubatch_req_slice, second_ubatch_token_slice),
     ]
+
+def create_ubatch_multi_slices(num_scheduled_tokens: np.ndarray, num_stages: int):
+    cu_num_tokens = np.zeros(len(num_scheduled_tokens) + 1, dtype=np.int32)
+    np.cumsum(num_scheduled_tokens, dtype=np.int32, out=cu_num_tokens[1:])
+    total_tokens = int(cu_num_tokens[-1])
+    split_points = [(total_tokens/num_stages) * (i+1) for i in range(num_stages - 1)]
+
+    split_points = np.unique(np.asarray(split_points, dtype=np.int32))
+    split_points = split_points[(split_points >= 0) & (split_points <= total_tokens)]
+
+    split_points = np.concatenate([[0], split_points, [total_tokens]])
+    split_points = np.unique(split_points)
+
+    n_ubatches = len(split_points) - 1
+    if n_ubatches <= 0:
+        return []
+
+    ubatch_slices: list[UBatchSlice] = []
+
+    for i in range(n_ubatches):
+        tok_start = int(split_points[i])
+        tok_end   = int(split_points[i + 1])
+        token_slice = slice(tok_start, tok_end)
+        if tok_start == tok_end:
+            continue
+
+        req_start = int(np.searchsorted(cu_num_tokens, tok_start, side="right") - 1)
+        req_stop  = int(np.searchsorted(cu_num_tokens, tok_end,   side="left"))
+
+        req_start = max(0, req_start)
+        req_stop  = min(len(num_scheduled_tokens), req_stop)
+        req_slice = slice(req_start, req_stop)
+
+        ubatch_slices.append(UBatchSlice(req_slice, token_slice))
+
+    return ubatch_slices

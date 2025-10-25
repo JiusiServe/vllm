@@ -6,7 +6,7 @@ import copy
 import gc
 import os
 from contextlib import AbstractContextManager, nullcontext
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import torch
 import torch.distributed
@@ -42,12 +42,12 @@ from vllm.v1.worker.gpu_ffn_model_runner import GPUFFNModelRunner
 from vllm.v1.worker.gpu_model_runner import GPUModelRunner
 from vllm.v1.worker.utils import is_residual_scattered_for_sp
 from vllm.v1.worker.worker_base import WorkerBase
+from vllm.v1.core.sched.output import SchedulerOutput
 
 logger = init_logger(__name__)
 
 if TYPE_CHECKING:
     from vllm.model_executor.model_loader.tensorizer import TensorizerConfig
-    from vllm.v1.core.sched.output import SchedulerOutput
 
 
 class Worker(WorkerBase):
@@ -460,7 +460,7 @@ class Worker(WorkerBase):
     @torch.inference_mode()
     def execute_model(
         self,
-        scheduler_output: "SchedulerOutput" | None,
+        scheduler_output: Optional["SchedulerOutput"] = None
     ) -> ModelRunnerOutput | AsyncModelRunnerOutput | None:
         # FFN server mode: direct execution without pipeline parallelism
         if (self.vllm_config.afd_config

@@ -1024,6 +1024,13 @@ def unified_mla_attention_with_output(
     wait_for_kv_layer_from_connector(layer_name)
     forward_context: ForwardContext = get_forward_context()
     attn_metadata = forward_context.attn_metadata
+    afd_metadata = forward_context.afd_metadata
+    if afd_metadata is not None and isinstance(attn_metadata, list): # TODO: need to handle dummy run better
+        afd_stage_idx = afd_metadata.afd_stage_idx
+        if afd_stage_idx < len(attn_metadata):
+            attn_metadata = attn_metadata[afd_stage_idx]
+        else:
+            attn_metadata = None  # padding    
     if isinstance(attn_metadata, dict):
         attn_metadata = attn_metadata[layer_name]
     self: MLAAttention = forward_context.no_compile_layers[layer_name]

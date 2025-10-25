@@ -1,7 +1,7 @@
 curl -v http://0.0.0.0:8000/v1/chat/completions \
 -H 'Content-Type: application/json' \
 -d \
-'{ "model": "/home/models/DeepSeek-V2-Lite",
+'{ "model": "/ms_test2/j00586476/deepseek-v2-lite/",
 "messages": [
           {"role": "user", "content": "What is 2+2?"}
 ],
