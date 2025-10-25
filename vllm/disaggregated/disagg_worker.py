@@ -249,6 +249,10 @@ def parse_histograms(
             sum_value = float(sum_value)
             count_value = float(count_value)
             mean = sum_value / count_value if count_value > 0 else float("nan")
+            # convert to milliseconds
+            mean_ms = mean * 1000
+            mean_ms_str = f"{mean_ms:.2f} ms"
+
             key = hist_name
             # If labels exist, use labels as part of the key
             if labels:
@@ -258,6 +262,6 @@ def parse_histograms(
             histograms[key] = {
                 # 'sum': sum_value,
                 'count': count_value,
-                'mean': mean,
+                'mean': mean_ms_str,
             }
     return histograms
