@@ -10,6 +10,7 @@ import numpy as np
 import prometheus_client
 
 from vllm.config import SupportsMetricsInfo, VllmConfig
+from vllm.disaggregated.disagg_worker import TIMECOUNT_ENABLED
 from vllm.logger import init_logger
 from vllm.v1.core.kv_cache_utils import PrefixCachingMetrics
 from vllm.v1.engine import FinishReason
@@ -60,6 +61,9 @@ class LoggingStatLogger(StatLoggerBase):
         self.spec_decoding_logging = SpecDecodingLogging()
         self.last_prompt_throughput: float = 0.0
         self.last_generation_throughput: float = 0.0
+        if TIMECOUNT_ENABLED:
+            # [count_num, total_seconds]
+            self.encoder_consume_seconds: list[float] = [0.0, 0.0]
 
     def _reset(self, now):
         self.last_log_time = now
@@ -73,6 +77,11 @@ class LoggingStatLogger(StatLoggerBase):
         self.num_prompt_tokens.append(iteration_stats.num_prompt_tokens)
         self.num_generation_tokens.append(
             iteration_stats.num_generation_tokens)
+        if TIMECOUNT_ENABLED:
+            for finished_request in iteration_stats.finished_requests:
+                self.encoder_consume_seconds[0] += 1
+                self.encoder_consume_seconds[1] += \
+                    finished_request.encoder_consume_time
 
     def _get_throughput(self, tracked_stats: list[int], now: float) -> float:
         # Compute summary metrics for tracked stats
@@ -122,6 +131,8 @@ class LoggingStatLogger(StatLoggerBase):
             "Running: %d reqs, Waiting: %d reqs, "
             "GPU KV cache usage: %.1f%%, "
             "Prefix cache hit rate: %.1f%%",
+            "Encoder consume seconds: %.3f ms/request" \
+                if TIMECOUNT_ENABLED else "",
             self.engine_index,
             prompt_throughput,
             generation_throughput,
@@ -129,6 +140,8 @@ class LoggingStatLogger(StatLoggerBase):
             scheduler_stats.num_waiting_reqs,
             scheduler_stats.gpu_cache_usage * 100,
             self.prefix_caching_metrics.hit_rate * 100,
+            self.encoder_consume_seconds[1] / self.encoder_consume_seconds[0] \
+                * 1000 if TIMECOUNT_ENABLED else ""
         )
         self.spec_decoding_logging.log(log_fn=log_fn)
 

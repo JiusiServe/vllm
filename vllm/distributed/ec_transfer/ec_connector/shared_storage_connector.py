@@ -82,6 +82,11 @@ class ECSharedStorageConnector(ECConnectorBase):
             return
 
         for mm_data in metadata.mm_datas:
+            if TIMECOUNT_ENABLED:
+                load_encoder_cache_time = time.perf_counter()
+                logger.info(
+                    "Success load encoder cache for request_id %s, time " \
+                    "at %.3f", mm_data.request_id, load_encoder_cache_time)
             for input_id in mm_data.input_ids:
                 if input_id in encoder_cache.get(mm_data.request_id, {}):
                     continue
@@ -96,11 +101,6 @@ class ECSharedStorageConnector(ECConnectorBase):
                 if mm_data.request_id not in encoder_cache:
                     encoder_cache[mm_data.request_id] = {}
                 encoder_cache[mm_data.request_id][input_id] = ec_cache
-                if TIMECOUNT_ENABLED:
-                    load_encoder_cache_time = time.perf_counter()
-                    logger.info(
-                        "Success load encoder cache for request_id %s, time " \
-                        "at %.3f", mm_data.request_id, load_encoder_cache_time)
                 logger.debug(
                     "Success load encoder cache for request_id %s, input_id %d",
                     mm_data.request_id, input_id)
