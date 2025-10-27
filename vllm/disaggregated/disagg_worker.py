@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import asyncio
+import copy
 import os
 import re
 import time
@@ -52,6 +53,8 @@ class DisaggWorker:
         self.encoder = msgspec.msgpack.Encoder()
         self.ec_role = ec_role
         self.running_requests: set[asyncio.Task] = set()
+        # store the histograms log reported last time
+        self.past_histograms_log: dict[str, dict] = dict()
 
     def shutdown(self):
         self.ctx.destroy()
@@ -71,11 +74,47 @@ class DisaggWorker:
     async def _force_log(self,
                          filter_keys: Optional[list[str]] = None) -> None:
         while True:
-            metrics_text = generate_latest(
-                registry=get_prometheus_registry()).decode("utf-8")
-            parse_result = parse_histograms(metrics_text,
-                                            filter_keys=filter_keys)
-            logger.info("DisaggWorker metrics:%s", parse_result)
+            try:
+                metrics_text = generate_latest(
+                    registry=get_prometheus_registry()).decode("utf-8")
+                parse_result = parse_histograms(metrics_text,
+                                                filter_keys=filter_keys)
+                parse_result_diff: dict[str, dict] = {}
+
+                if self.past_histograms_log:
+                    # compute diff
+                    for k, cur in parse_result.items():
+                        past = self.past_histograms_log.get(k, {})
+                        cur_count = cur.get("count", 0)
+                        past_count = past.get("count", 0)
+                        # diff
+                        diff_count = cur_count - past_count
+                        # compute mean diff (weighted average)
+                        if diff_count > 0:
+                            cur_sum = cur.get("mean", 0) * cur_count
+                            past_sum = past.get("mean", 0) * past_count
+                            diff_mean = (cur_sum - past_sum) / diff_count
+                            # convert to milliseconds
+                            diff_mean_ms = round(diff_mean * 1000, 2)
+                        else:
+                            diff_mean_ms = float('nan')
+                        parse_result_diff[k] = {
+                            "count": diff_count,
+                            "mean_ms": diff_mean_ms
+                        }
+                else:
+                    # first time log, just log current values
+                    for k, v in parse_result.items():
+                        mean_ms = round(v.get("mean", 0) * 1000, 2)
+                        parse_result_diff[k] = {
+                            "count": v.get("count", 0),
+                            "mean_ms": mean_ms
+                        }
+                # refresh past log
+                self.past_histograms_log = copy.deepcopy(parse_result)
+                logger.info("DisaggWorker metrics: %s", parse_result_diff)
+            except Exception as e:
+                logger.error("Error in force_log: %s", e)
             await asyncio.sleep(VLLM_LOG_STATS_INTERVAL)
 
     async def run_busy_loop(self):
