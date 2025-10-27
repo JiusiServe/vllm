@@ -5,7 +5,7 @@ import copy
 import os
 import re
 import time
-from typing import Optional
+from typing import Optional, Union
 
 import msgspec
 import numpy as np
@@ -79,7 +79,7 @@ class DisaggWorker:
                     registry=get_prometheus_registry()).decode("utf-8")
                 parse_result = parse_histograms(metrics_text,
                                                 filter_keys=filter_keys)
-                parse_result_diff: dict[str, dict] = {}
+                parse_result_diff: dict[str, dict[str, Union[str, float]]] = {}
 
                 if self.past_histograms_log:
                     # compute diff
@@ -93,22 +93,21 @@ class DisaggWorker:
                         if diff_count > 0:
                             cur_sum = cur.get("mean", 0) * cur_count
                             past_sum = past.get("mean", 0) * past_count
-                            diff_mean = (cur_sum - past_sum) / diff_count
-                            # convert to milliseconds
-                            diff_mean_ms = round(diff_mean * 1000, 2)
+                            diff_mean = round(
+                                (cur_sum - past_sum) / diff_count, 2)
                         else:
-                            diff_mean_ms = float('nan')
+                            diff_mean = float('nan')
                         parse_result_diff[k] = {
                             "count": diff_count,
-                            "mean_ms": diff_mean_ms
+                            "mean_ms": f"{diff_mean} ms"
                         }
                 else:
                     # first time log, just log current values
                     for k, v in parse_result.items():
-                        mean_ms = round(v.get("mean", 0) * 1000, 2)
+                        mean_ms = round(v.get("mean", 0), 2)
                         parse_result_diff[k] = {
                             "count": v.get("count", 0),
-                            "mean_ms": mean_ms
+                            "mean_ms": f"{mean_ms} ms"
                         }
                 # refresh past log
                 self.past_histograms_log = copy.deepcopy(parse_result)
@@ -238,7 +237,8 @@ def _decode_mm_data(mm_data: dict[str, any]) -> dict[str, any]:
 
 def parse_histograms(
         metrics_text: str,
-        filter_keys: Optional[list[str]] = None) -> dict[str, dict]:
+        filter_keys: Optional[list[str]] = None
+) -> dict[str, dict[str, float]]:
     """
     Parse Prometheus metrics text, extract only histogram type data,
     and optionally filter by metric name (supporting multiple filter keys).
@@ -291,7 +291,6 @@ def parse_histograms(
             mean = sum_value / count_value if count_value > 0 else float("nan")
             # convert to milliseconds
             mean_ms = mean * 1000
-            mean_ms_str = f"{mean_ms:.2f} ms"
 
             key = hist_name
             # If labels exist, use labels as part of the key
@@ -302,6 +301,6 @@ def parse_histograms(
             histograms[key] = {
                 # 'sum': sum_value,
                 'count': count_value,
-                'mean': mean_ms_str,
+                'mean': mean_ms,
             }
     return histograms
