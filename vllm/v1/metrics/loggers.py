@@ -134,8 +134,8 @@ class LoggingStatLogger(StatLoggerBase):
             "Running: %d reqs, Waiting: %d reqs, "
             "GPU KV cache usage: %.1f%%, "
             "Prefix cache hit rate: %.1f%%",
-            "Encoder consume seconds: %.3f ms/request" \
-                if TIMECOUNT_ENABLED else "",
+            "Encoder consume seconds: %.3f ms/request" if TIMECOUNT_ENABLED \
+                and self.encoder_consume_seconds[0] > 0 else "",
             self.engine_index,
             prompt_throughput,
             generation_throughput,
@@ -144,7 +144,8 @@ class LoggingStatLogger(StatLoggerBase):
             scheduler_stats.gpu_cache_usage * 100,
             self.prefix_caching_metrics.hit_rate * 100,
             self.encoder_consume_seconds[1] / self.encoder_consume_seconds[0] \
-                * 1000 if TIMECOUNT_ENABLED else ""
+                * 1000 if TIMECOUNT_ENABLED and \
+                    self.encoder_consume_seconds[0] > 0 else ""
         )
         self.spec_decoding_logging.log(log_fn=log_fn)
 
