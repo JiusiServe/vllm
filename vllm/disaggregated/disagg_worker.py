@@ -96,7 +96,7 @@ class DisaggWorker:
                             diff_mean = round(
                                 (cur_sum - past_sum) / diff_count, 2)
                         else:
-                            diff_mean = float('nan')
+                            diff_mean = float('0.0')
                         parse_result_diff[k] = {
                             "count": diff_count,
                             "mean_ms": f"{diff_mean} ms"
@@ -124,7 +124,7 @@ class DisaggWorker:
         if TIMECOUNT_ENABLED:
             filter_keys = [
                 "e2e_request_latency_seconds", "request_queue_time_seconds",
-                "encoder_consume_time_seconds",
+                "encoder_consume_time_seconds", "time_to_first_token_seconds",
                 "time_per_output_token_seconds", "request_prefill_time_seconds"
             ]
             self._add_managed_task(self._do_log_stats())
@@ -288,7 +288,7 @@ def parse_histograms(
             # Calculate mean
             sum_value = float(sum_value)
             count_value = float(count_value)
-            mean = sum_value / count_value if count_value > 0 else float("nan")
+            mean = sum_value / count_value if count_value > 0 else float("0.0")
             # convert to milliseconds
             mean_ms = mean * 1000
 
