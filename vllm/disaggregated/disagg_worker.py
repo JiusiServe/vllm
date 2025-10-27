@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import asyncio
 import copy
+import json
 import os
 import re
 import time
@@ -80,6 +81,11 @@ class DisaggWorker:
                 parse_result = parse_histograms(metrics_text,
                                                 filter_keys=filter_keys)
                 parse_result_diff: dict[str, dict[str, Union[str, float]]] = {}
+                log_fn = logger.info
+                if json.dumps(parse_result, sort_keys=True) == json.dumps(
+                        self.past_histograms_log, sort_keys=True):
+                    # no change, skip logging
+                    log_fn = logger.debug
 
                 if self.past_histograms_log:
                     # compute diff
@@ -99,7 +105,7 @@ class DisaggWorker:
                             diff_mean = float('0.0')
                         parse_result_diff[k] = {
                             "count": diff_count,
-                            "mean_ms": f"{diff_mean} ms"
+                            "mean": f"{diff_mean} ms"
                         }
                 else:
                     # first time log, just log current values
@@ -107,11 +113,11 @@ class DisaggWorker:
                         mean_ms = round(v.get("mean", 0), 2)
                         parse_result_diff[k] = {
                             "count": v.get("count", 0),
-                            "mean_ms": f"{mean_ms} ms"
+                            "mean": f"{mean_ms} ms"
                         }
                 # refresh past log
                 self.past_histograms_log = copy.deepcopy(parse_result)
-                logger.info("DisaggWorker metrics: %s", parse_result_diff)
+                log_fn("DisaggWorker metrics: %s", parse_result_diff)
             except Exception as e:
                 logger.error("Error in force_log: %s", e)
             await asyncio.sleep(VLLM_LOG_STATS_INTERVAL)
