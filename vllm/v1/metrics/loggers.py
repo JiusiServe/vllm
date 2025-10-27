@@ -127,15 +127,13 @@ class LoggingStatLogger(StatLoggerBase):
         self.last_prompt_throughput = prompt_throughput
 
         # Format and print output.
-        log_fn(
-            "Engine %03d: "
-            "Avg prompt throughput: %.1f tokens/s, "
-            "Avg generation throughput: %.1f tokens/s, "
-            "Running: %d reqs, Waiting: %d reqs, "
-            "GPU KV cache usage: %.1f%%, "
-            "Prefix cache hit rate: %.1f%%",
-            "Encoder consume seconds: %.3f ms/request" if TIMECOUNT_ENABLED \
-                and self.encoder_consume_seconds[0] > 0 else "",
+        log_msg = ("Engine %03d: "
+                   "Avg prompt throughput: %.1f tokens/s, "
+                   "Avg generation throughput: %.1f tokens/s, "
+                   "Running: %d reqs, Waiting: %d reqs, "
+                   "GPU KV cache usage: %.1f%%, "
+                   "Prefix cache hit rate: %.1f%%")
+        log_args = [
             self.engine_index,
             prompt_throughput,
             generation_throughput,
@@ -143,10 +141,12 @@ class LoggingStatLogger(StatLoggerBase):
             scheduler_stats.num_waiting_reqs,
             scheduler_stats.gpu_cache_usage * 100,
             self.prefix_caching_metrics.hit_rate * 100,
-            self.encoder_consume_seconds[1] / self.encoder_consume_seconds[0] \
-                * 1000 if TIMECOUNT_ENABLED and \
-                    self.encoder_consume_seconds[0] > 0 else ""
-        )
+        ]
+        if TIMECOUNT_ENABLED and self.encoder_consume_seconds[0] > 0:
+            log_msg += ", Encoder consume seconds: %.3f ms/request"
+            log_args.append(self.encoder_consume_seconds[1] /
+                            self.encoder_consume_seconds[0] * 1000)
+        log_fn(log_msg, *log_args)
         self.spec_decoding_logging.log(log_fn=log_fn)
 
     def log_engine_initialized(self):
