@@ -24,14 +24,14 @@ import vllm.envs as envs
 from vllm.config import (BlockSize, CacheConfig, CacheDType, CompilationConfig,
                          ConfigType, ConvertOption, DetailedTraceModules,
                          Device, DeviceConfig, DistributedExecutorBackend,
-                         EPLBConfig, HfOverrides, KVEventsConfig,
-                         KVTransferConfig, LoadConfig, LogprobsMode,
-                         LoRAConfig, MambaDType, MMEncoderTPMode, ModelConfig,
-                         ModelDType, ObservabilityConfig, ParallelConfig,
-                         PoolerConfig, PrefixCachingHashAlgo, RunnerOption,
-                         SchedulerConfig, SchedulerPolicy, SpeculativeConfig,
-                         StructuredOutputsConfig, TaskOption, TokenizerMode,
-                         VllmConfig, get_attr_docs)
+                         ECTransferConfig, EPLBConfig, HfOverrides,
+                         KVEventsConfig, KVTransferConfig, LoadConfig,
+                         LogprobsMode, LoRAConfig, MambaDType, MMEncoderTPMode,
+                         ModelConfig, ModelDType, ObservabilityConfig,
+                         ParallelConfig, PoolerConfig, PrefixCachingHashAlgo,
+                         RunnerOption, SchedulerConfig, SchedulerPolicy,
+                         SpeculativeConfig, StructuredOutputsConfig,
+                         TaskOption, TokenizerMode, VllmConfig, get_attr_docs)
 from vllm.config.multimodal import MMCacheType, MultiModalConfig
 from vllm.config.parallel import ExpertPlacementStrategy
 from vllm.config.utils import get_field
@@ -456,6 +456,8 @@ class EngineArgs:
     kv_transfer_config: Optional[KVTransferConfig] = None
     kv_events_config: Optional[KVEventsConfig] = None
 
+    ec_transfer_config: Optional[ECTransferConfig] = None
+
     generation_config: str = ModelConfig.generation_config
     enable_sleep_mode: bool = ModelConfig.enable_sleep_mode
     override_generation_config: dict[str, Any] = \
@@ -502,8 +504,8 @@ class EngineArgs:
             model_id = self.model
             self.model = get_model_path(self.model, self.revision)
             logger.info(
-                "HF_HUB_OFFLINE is True, replace model_id [%s] " \
-                "to model_path [%s]",model_id, self.model)
+                "HF_HUB_OFFLINE is True, replace model_id [%s] "
+                "to model_path [%s]", model_id, self.model)
 
     @staticmethod
     def add_cli_args(parser: FlexibleArgumentParser) -> FlexibleArgumentParser:
@@ -715,8 +717,7 @@ class EngineArgs:
         parallel_group.add_argument(
             "--num-redundant-experts",
             type=int,
-            help=
-            "[DEPRECATED] --num-redundant-experts will be removed in v0.12.0.",
+            help="[DEPRECATED] --num-redundant-experts will be removed in v0.12.0.",
             deprecated=True)
         parallel_group.add_argument(
             "--eplb-window-size",
@@ -726,14 +727,12 @@ class EngineArgs:
         parallel_group.add_argument(
             "--eplb-step-interval",
             type=int,
-            help=
-            "[DEPRECATED] --eplb-step-interval will be removed in v0.12.0.",
+            help="[DEPRECATED] --eplb-step-interval will be removed in v0.12.0.",
             deprecated=True)
         parallel_group.add_argument(
             "--eplb-log-balancedness",
             action=argparse.BooleanOptionalAction,
-            help=
-            "[DEPRECATED] --eplb-log-balancedness will be removed in v0.12.0.",
+            help="[DEPRECATED] --eplb-log-balancedness will be removed in v0.12.0.",
             deprecated=True)
 
         parallel_group.add_argument(
@@ -931,6 +930,8 @@ class EngineArgs:
                                 **vllm_kwargs["kv_transfer_config"])
         vllm_group.add_argument('--kv-events-config',
                                 **vllm_kwargs["kv_events_config"])
+        vllm_group.add_argument("--ec-transfer-config",
+                                **vllm_kwargs["ec_transfer_config"])
         vllm_group.add_argument("--compilation-config", "-O",
                                 **vllm_kwargs["compilation_config"])
         vllm_group.add_argument("--additional-config",
@@ -1138,7 +1139,7 @@ class EngineArgs:
              revision=self.revision,
              trust_remote_code=self.trust_remote_code,
              vllm_speculative_config=self.speculative_config,
-         )
+        )
         model_config = self.create_model_config()
 
         # * If VLLM_USE_V1 is unset, we enable V1 for "supported features"
@@ -1183,9 +1184,9 @@ class EngineArgs:
         # tp_size//dcp_size DCP groups.
         assert self.tensor_parallel_size % self.decode_context_parallel_size \
             == 0, (
-            f"tp_size={self.tensor_parallel_size} must be divisible by"
-            f"dcp_size={self.decode_context_parallel_size}."
-        )
+                f"tp_size={self.tensor_parallel_size} must be divisible by"
+                f"dcp_size={self.decode_context_parallel_size}."
+            )
 
         cache_config = CacheConfig(
             block_size=self.block_size,
@@ -1410,16 +1411,16 @@ class EngineArgs:
         so_config = self.structured_outputs_config
         if self.guided_decoding_backend is not None:
             so_config.guided_decoding_backend = \
-            self.guided_decoding_backend
+                self.guided_decoding_backend
         if self.guided_decoding_disable_fallback is not None:
             so_config.guided_decoding_disable_fallback = \
-            self.guided_decoding_disable_fallback
+                self.guided_decoding_disable_fallback
         if self.guided_decoding_disable_any_whitespace is not None:
             so_config.guided_decoding_disable_any_whitespace = \
-            self.guided_decoding_disable_any_whitespace
+                self.guided_decoding_disable_any_whitespace
         if self.guided_decoding_disable_additional_properties is not None:
             so_config.guided_decoding_disable_additional_properties = \
-            self.guided_decoding_disable_additional_properties
+                self.guided_decoding_disable_additional_properties
 
         observability_config = ObservabilityConfig(
             show_hidden_metrics_for_version=(
@@ -1442,6 +1443,7 @@ class EngineArgs:
             compilation_config=self.compilation_config,
             kv_transfer_config=self.kv_transfer_config,
             kv_events_config=self.kv_events_config,
+            ec_transfer_config=self.ec_transfer_config,
             additional_config=self.additional_config,
         )
 
@@ -1521,8 +1523,8 @@ class EngineArgs:
                     ParallelConfig.distributed_executor_backend, "ray", "mp",
                     "external_launcher"):
                 name = "Pipeline Parallelism without Ray distributed " \
-                        "executor or multiprocessing executor or external " \
-                        "launcher"
+                    "executor or multiprocessing executor or external " \
+                    "launcher"
                 _raise_or_fallback(feature_name=name,
                                    recommend_to_remove=False)
                 return False
@@ -1770,9 +1772,9 @@ def human_readable_int(value):
             try:
                 return int(number) * mult
             except ValueError as e:
-                raise argparse.ArgumentTypeError("Decimals are not allowed " \
-                f"with binary suffixes like {suffix}. Did you mean to use " \
-                f"{number}{suffix.lower()} instead?") from e
+                raise argparse.ArgumentTypeError("Decimals are not allowed "
+                                                 f"with binary suffixes like {suffix}. Did you mean to use "
+                                                 f"{number}{suffix.lower()} instead?") from e
 
     # Regular plain number.
     return int(value)
