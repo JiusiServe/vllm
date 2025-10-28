@@ -74,6 +74,8 @@ class LoggingStatLogger(StatLoggerBase):
         # Tracked stats over current local logging interval.
         self.num_prompt_tokens: list[int] = []
         self.num_generation_tokens: list[int] = []
+        if TIMECOUNT_ENABLED:
+            self.encoder_consume_seconds: list[float] = [0.0, 0.0]
 
     def _track_iteration_stats(self, iteration_stats: IterationStats):
         # Save tracked stats for token counters.
