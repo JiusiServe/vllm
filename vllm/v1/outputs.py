@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, NamedTuple, Optional, Union
 
 import torch
 
+from vllm.v1.core.sched.output import SchedulerOutput
+
 if TYPE_CHECKING:
     from vllm.distributed.kv_transfer.kv_connector.v1.metrics import (
         KVConnectorStats)
@@ -93,6 +95,13 @@ class KVConnectorOutput:
                 and not self.kv_connector_stats)
 
 
+@dataclass
+class ECConnectorOutput:
+    # [mm_hash]
+    finished_sending: set[str] | None = None
+    finished_recving: set[str] | None = None
+
+
 # ModelRunnerOutput is serialized and sent to the scheduler process.
 # This is expensive for torch.Tensor so prefer to use list instead.
 @dataclass
@@ -124,6 +133,8 @@ class ModelRunnerOutput:
     pooler_output: list[Optional[torch.Tensor]]
 
     kv_connector_output: Optional[KVConnectorOutput] = None
+
+    ec_connector_output: ECConnectorOutput | None = None
 
     # req_id -> num_nans_in_logits
     num_nans_in_logits: Optional[dict[str, int]] = None
