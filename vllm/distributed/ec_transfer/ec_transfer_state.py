@@ -15,7 +15,9 @@ _EC_CONNECTOR_AGENT: Optional[ECConnectorBase] = None
 
 
 def get_ec_transfer() -> ECConnectorBase:
-    assert _EC_CONNECTOR_AGENT is not None, "disaggregated EC cache is not initialized"
+    assert _EC_CONNECTOR_AGENT is not None, (
+        "disaggregated EC cache is not initialized"
+    )
     return _EC_CONNECTOR_AGENT
 
 

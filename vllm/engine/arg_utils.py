@@ -723,8 +723,7 @@ class EngineArgs:
         parallel_group.add_argument(
             "--eplb-window-size",
             type=int,
-            help=
-            "[DEPRECATED] --eplb-window-size will be removed in v0.12.0.",
+            help="[DEPRECATED] --eplb-window-size will be removed in v0.12.0.",
             deprecated=True)
         parallel_group.add_argument(
             "--eplb-step-interval",
@@ -1143,7 +1142,7 @@ class EngineArgs:
              revision=self.revision,
              trust_remote_code=self.trust_remote_code,
              vllm_speculative_config=self.speculative_config,
-        )
+         )
         model_config = self.create_model_config()
 
         # * If VLLM_USE_V1 is unset, we enable V1 for "supported features"
