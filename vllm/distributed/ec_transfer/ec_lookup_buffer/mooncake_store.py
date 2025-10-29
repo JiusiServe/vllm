@@ -231,13 +231,13 @@ class ECMooncakeStore:
             "Single get is not supported. Use batch_get([key]) instead."
         )
 
-    def batch_get(self, keys: list[str]) -> list[torch.Tensor | None]:
+    def batch_get(self, keys: list[str], device) -> list[torch.Tensor | None]:
         if self.config.fast_transfer:
-            return self._zero_copy_batch_get(keys)
+            return self._zero_copy_batch_get(keys, device)
 
-        return self._batch_get(keys)
+        return self._batch_get(keys, device)
 
-    def _zero_copy_batch_get(self, keys: list[str]) -> list[torch.Tensor | None]:
+    def _zero_copy_batch_get(self, keys: list[str], device) -> list[torch.Tensor | None]:
         if not keys:
             return []
 
@@ -289,13 +289,13 @@ class ECMooncakeStore:
             exist_ids, buffer_addrs, buffer_dtypes, buffer_shapes, read_bytes
         ):
             if read_byte > 0:
-                results[id] = self.tensor_pool.load_tensor(addr, dtype, shape, "cuda")
+                results[id] = self.tensor_pool.load_tensor(addr, dtype, shape, device)
 
             self.tensor_pool.free(addr)
 
         return results
 
-    def _batch_get(self, keys: list[str]) -> list[torch.Tensor | None]:
+    def _batch_get(self, keys: list[str], device) -> list[torch.Tensor | None]:
         try:
             bytes_list = self.store.get_batch(keys)
         except Exception as e:
@@ -320,7 +320,7 @@ class ECMooncakeStore:
                 tensor_loaded = tensor_loaded.view(
                     getattr(torch, meta["original_dtype"].split(".")[-1])
                 )  # e.g., 'torch.bfloat16' -> torch.bfloat16
-            tensors.append(tensor_loaded.cuda())
+            tensors.append(tensor_loaded.to(device))
 
         return tensors
 

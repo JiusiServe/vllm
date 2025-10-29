@@ -198,9 +198,6 @@ class TensorMemoryPool:
         Raises:
             ValueError: If tensor is not on CUDA or allocation fails
         """
-        if not tensor.is_cuda:
-            raise ValueError("Only CUDA tensors can be stored")
-
         size = tensor.element_size() * tensor.numel()
         addr = self.allocate(size)
         block = self.allocated_blocks[addr]
@@ -258,11 +255,11 @@ class TensorMemoryPool:
             shape
         )
 
-        cuda_tensor = torch.empty(shape, dtype=dtype, device=device)
+        tensor = torch.empty(shape, dtype=dtype, device=device)
 
-        cuda_tensor.copy_(cpu_tensor)
+        tensor.copy_(cpu_tensor)
 
-        return cuda_tensor
+        return tensor
 
     def cleanup(self):
         """Cleans up all memory resources and resets the pool state."""

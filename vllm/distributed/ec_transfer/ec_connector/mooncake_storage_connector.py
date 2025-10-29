@@ -79,7 +79,8 @@ class ECMooncakeStorageConnector(ECConnectorBase):
             for mm_data in metadata.mm_datas
             if mm_data.mm_hash not in encoder_cache
         ]
-        tensors = self.store.batch_get(mm_hashes)
+        device = encoder_cache[0].device
+        tensors = self.store.batch_get(mm_hashes, device)
 
         for mm_hash, ec_cache in zip(mm_hashes, tensors):
             encoder_cache[mm_hash] = ec_cache
