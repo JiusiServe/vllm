@@ -79,7 +79,8 @@ class ECConnectorBase(ABC):
     # Worker-side methods
     # ==============================
 
-    def bind_connector_metadata(self, connector_metadata: ECConnectorMetadata) -> None:
+    def bind_connector_metadata(
+            self, connector_metadata: ECConnectorMetadata) -> None:
         """Set the connector metadata from the scheduler.
 
         This function should be called by the model runner every time
@@ -125,27 +126,26 @@ class ECConnectorBase(ABC):
         return
 
     @abstractmethod
-    def start_load_caches(
-        self, encoder_cache: dict[str, torch.Tensor], **kwargs
-    ) -> None:
+    def start_load_caches(self, encoder_cache: dict[str, torch.Tensor],
+                          **kwargs) -> None:
         """
         Start loading the cache from the connector into vLLM's encoder cache.
 
-        This method loads the encoder cache based on metadata provided by the scheduler.
-        It is called before `_gather_mm_embeddings` for the EC Connector. For EC,
-        the `encoder_cache` and `mm_hash` are stored in `kwargs`.
+        This method loads the encoder cache based on metadata provided by the 
+        scheduler.
+        It is called before `_gather_mm_embeddings` for the EC Connector. 
+        For EC, the `encoder_cache` and `mm_hash` are stored in `kwargs`.
 
         Args:
-            encoder_cache (dict[str, torch.Tensor]): A dictionary mapping multimodal
-                data hashes (`mm_hash`) to encoder cache tensors.
+            encoder_cache (dict[str, torch.Tensor]): A dictionary mapping 
+                multimodal data hashes (`mm_hash`) to encoder cache tensors.
             kwargs (dict): Additional keyword arguments for the connector.
         """
         pass
 
     @abstractmethod
-    def save_caches(
-        self, encoder_cache: dict[str, torch.Tensor], mm_hash: str, **kwargs
-    ) -> None:
+    def save_caches(self, encoder_cache: dict[str, torch.Tensor], mm_hash: str,
+                    **kwargs) -> None:
         """
         Save the encoder cache to the connector.
 
@@ -153,9 +153,10 @@ class ECConnectorBase(ABC):
         to shared storage or another external connector.
 
         Args:
-            encoder_cache (dict[str, torch.Tensor]): A dictionary mapping multimodal
-                data hashes (`mm_hash`) to encoder cache tensors.
-            mm_hash (str): The hash of the multimodal data whose cache is being saved.
+            encoder_cache (dict[str, torch.Tensor]): A dictionary mapping 
+                multimodal data hashes (`mm_hash`) to encoder cache tensors.
+            mm_hash (str): 
+                The hash of the multimodal data whose cache is being saved.
             kwargs (dict): Additional keyword arguments for the connector.
         """
         pass
@@ -211,8 +212,7 @@ class ECConnectorBase(ABC):
 
     @abstractmethod
     def build_connector_meta(
-        self, scheduler_output: SchedulerOutput
-    ) -> ECConnectorMetadata:
+            self, scheduler_output: SchedulerOutput) -> ECConnectorMetadata:
         """
         Build the connector metadata for this step.
 
@@ -235,8 +235,7 @@ class ECConnectorBase(ABC):
         return
 
     def request_finished(
-        self, request: "Request"
-    ) -> tuple[bool, Optional[dict[str, Any]]]:
+            self, request: "Request") -> tuple[bool, Optional[dict[str, Any]]]:
         """
         Called when a request has finished, before its encoder cache is freed.
 

@@ -164,7 +164,7 @@ class DraftTokenIds:
 
 
 def make_empty_encoder_model_runner_output(
-        scheduler_output: "SchedulerOutput", ) -> ModelRunnerOutput:
+    scheduler_output: "SchedulerOutput", ) -> ModelRunnerOutput:
     """
     Create a ModelRunnerOutput stub that contains the correct
     per-request bookkeeping but no generated data yet.

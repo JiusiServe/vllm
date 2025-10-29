@@ -717,22 +717,26 @@ class EngineArgs:
         parallel_group.add_argument(
             "--num-redundant-experts",
             type=int,
-            help="[DEPRECATED] --num-redundant-experts will be removed in v0.12.0.",
+            help=
+            "[DEPRECATED] --num-redundant-experts will be removed in v0.12.0.",
             deprecated=True)
         parallel_group.add_argument(
             "--eplb-window-size",
             type=int,
-            help="[DEPRECATED] --eplb-window-size will be removed in v0.12.0.",
+            help=
+            "[DEPRECATED] --eplb-window-size will be removed in v0.12.0.",
             deprecated=True)
         parallel_group.add_argument(
             "--eplb-step-interval",
             type=int,
-            help="[DEPRECATED] --eplb-step-interval will be removed in v0.12.0.",
+            help=
+            "[DEPRECATED] --eplb-step-interval will be removed in v0.12.0.",
             deprecated=True)
         parallel_group.add_argument(
             "--eplb-log-balancedness",
             action=argparse.BooleanOptionalAction,
-            help="[DEPRECATED] --eplb-log-balancedness will be removed in v0.12.0.",
+            help=
+            "[DEPRECATED] --eplb-log-balancedness will be removed in v0.12.0.",
             deprecated=True)
 
         parallel_group.add_argument(
@@ -1772,9 +1776,10 @@ def human_readable_int(value):
             try:
                 return int(number) * mult
             except ValueError as e:
-                raise argparse.ArgumentTypeError("Decimals are not allowed "
-                                                 f"with binary suffixes like {suffix}. Did you mean to use "
-                                                 f"{number}{suffix.lower()} instead?") from e
+                raise argparse.ArgumentTypeError(
+                    "Decimals are not allowed "
+                    f"with binary suffixes like {suffix}. Did you mean to use "
+                    f"{number}{suffix.lower()} instead?") from e
 
     # Regular plain number.
     return int(value)
