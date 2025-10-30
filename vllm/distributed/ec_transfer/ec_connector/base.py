@@ -57,6 +57,7 @@ class ECConnectorMetadata(ABC):  # noqa: B024
 
 
 class ECConnectorBase(ABC):
+
     def __init__(self, vllm_config: "VllmConfig", role: ECConnectorRole):
         self._connector_metadata: Optional[ECConnectorMetadata] = None
         self._vllm_config = vllm_config
