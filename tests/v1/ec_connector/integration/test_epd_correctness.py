@@ -41,83 +41,68 @@ image_2 = ImageAsset("cherry_blossom").pil_image.resize((1280, 720))
 
 SAMPLE_PROMPTS_MM: list[dict] = [
     {
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": (
-                                "data:image;base64,"
-                                f"{encode_image_base64(image_1)}"
-                            )
-                        },
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": ("data:image;base64,"
+                                f"{encode_image_base64(image_1)}")
                     },
-                    {
+                },
+                {
                         "type": "text",
                         "text": "What's in this image?",
-                    },
-                ],
-            }
-        ],
+                },
+            ],
+        }],
         "description": "Single image query",
     },
     {
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": (
-                                "data:image;base64,"
-                                f"{encode_image_base64(image_2)}"
-                            )
-                        },
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": ("data:image;base64,"
+                                f"{encode_image_base64(image_2)}")
                     },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": (
-                                "data:image;base64,"
-                                f"{encode_image_base64(image_1)}"
-                            )
-                        },
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": ("data:image;base64,"
+                                f"{encode_image_base64(image_1)}")
                     },
-                    {
-                        "type": "text",
-                        "text": "Describe these 2 images in detail.",
-                    },
-                ],
-            }
-        ],
+                },
+                {
+                    "type": "text",
+                    "text": "Describe these 2 images in detail.",
+                },
+            ],
+        }],
         "description": "2 images with detailed query",
     },
 ]
 
 # Text-only prompts for mixed testing
-SAMPLE_PROMPTS_TEXT: list[dict] = [
-    {
-        "messages": [
-            {
-                "role": "user",
-                "content": "What is the capital of France?",
-            }
-        ],
-        "description": "Simple text-only query",
+SAMPLE_PROMPTS_TEXT: list[dict] = [{
+    "messages": [{
+        "role": "user",
+        "content": "What is the capital of France?",
+    }],
+        "description":
+        "Simple text-only query",
     },
     {
-        "messages": [
-            {
-                "role": "user",
-                "content": (
-                    "Explain quantum computing in simple terms."
-                ),
-            }
-        ],
-        "description": "Text-only explanation request",
+        "messages": [{
+            "role": "user",
+            "content": "Explain quantum computing in simple terms.",
+        }],
+        "description":
+        "Text-only explanation request",
     },
 ]
 
@@ -142,8 +127,7 @@ def check_vllm_server(url: str, timeout=5, retries=10) -> bool:
             else:
                 print(
                     f"Attempt {attempt + 1}/{retries}: Server returned "
-                    f"status code {response.status_code}"
-                )
+                    f"status code {response.status_code}")
         except requests.exceptions.RequestException as e:
             print(f"Attempt {attempt + 1}/{retries}: Error connecting: {e}")
         time.sleep(2)  # Wait before retrying
@@ -183,8 +167,7 @@ def run_chat_completion(
 def main():
     """Main test function."""
     parser = argparse.ArgumentParser(
-        description="EPD correctness test - compare disagg vs baseline"
-    )
+        description="EPD correctness test - compare disagg vs baseline")
 
     parser.add_argument(
         "--service_url",
@@ -207,8 +190,7 @@ def main():
         choices=["baseline", "baseline_pd", "disagg"],
         help=(
             "Mode: baseline/baseline_pd (saves outputs) or disagg "
-            "(compares outputs)"
-        ),
+            "(compares outputs)"),
     )
 
     parser.add_argument(
@@ -246,8 +228,7 @@ def main():
         if not os.path.exists(args.baseline_file):
             raise ValueError(
                 f"In disagg mode, the output file {args.baseline_file} from "
-                "baseline does not exist. Run baseline mode first."
-            )
+                "baseline does not exist. Run baseline mode first.")
 
     # Check if server is ready
     if not check_vllm_server(health_check_url):
@@ -304,8 +285,7 @@ def main():
                           dict), "Baseline outputs should be a dict"
         assert len(baseline_outputs) == len(output_strs), (
             f"Length mismatch: baseline has {len(baseline_outputs)}, "
-            f"disagg has {len(output_strs)}"
-        )
+            f"disagg has {len(output_strs)}")
 
         all_match = True
         for key, baseline_output in baseline_outputs.items():
