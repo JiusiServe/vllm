@@ -401,9 +401,12 @@ class TestCacheLoading:
         # Verify all 3 loaded
         assert len(encoder_cache) == 3
         for mm_hash in mm_hashes:
-            assert mm_hash in encoder_cache, f"{mm_hash} missing in encoder_cache"
+            assert mm_hash in encoder_cache, (
+                f"{mm_hash} missing in encoder_cache"
+            )
             assert encoder_cache[mm_hash].is_cuda, (
-                f"{mm_hash} cache is in {encoder_cache[mm_hash].device}")
+                f"{mm_hash} cache is in {encoder_cache[mm_hash].device}"
+            )
             assert torch.allclose(
                 encoder_cache[mm_hash].cpu(), saved_caches[mm_hash]
             ), f"{mm_hash} cache saved and loaded tesnor are not the same"
