@@ -42,7 +42,8 @@ image_2 = ImageAsset("cherry_blossom").pil_image.resize((1280, 720))
 SAMPLE_PROMPTS_MM: list[dict] = [
     {
         "messages": [{
-            "role": "user",
+            "role":
+            "user",
             "content": [
                 {
                     "type": "image_url",
@@ -52,16 +53,18 @@ SAMPLE_PROMPTS_MM: list[dict] = [
                     },
                 },
                 {
-                        "type": "text",
-                        "text": "What's in this image?",
+                    "type": "text",
+                    "text": "What's in this image?",
                 },
             ],
         }],
-        "description": "Single image query",
+        "description":
+        "Single image query",
     },
     {
         "messages": [{
-            "role": "user",
+            "role":
+            "user",
             "content": [
                 {
                     "type": "image_url",
@@ -83,16 +86,18 @@ SAMPLE_PROMPTS_MM: list[dict] = [
                 },
             ],
         }],
-        "description": "2 images with detailed query",
+        "description":
+        "2 images with detailed query",
     },
 ]
 
 # Text-only prompts for mixed testing
-SAMPLE_PROMPTS_TEXT: list[dict] = [{
-    "messages": [{
-        "role": "user",
-        "content": "What is the capital of France?",
-    }],
+SAMPLE_PROMPTS_TEXT: list[dict] = [
+    {
+        "messages": [{
+            "role": "user",
+            "content": "What is the capital of France?",
+        }],
         "description":
         "Simple text-only query",
     },
@@ -125,9 +130,8 @@ def check_vllm_server(url: str, timeout=5, retries=10) -> bool:
                 print(f"Server is ready at {url}")
                 return True
             else:
-                print(
-                    f"Attempt {attempt + 1}/{retries}: Server returned "
-                    f"status code {response.status_code}")
+                print(f"Attempt {attempt + 1}/{retries}: Server returned "
+                      f"status code {response.status_code}")
         except requests.exceptions.RequestException as e:
             print(f"Attempt {attempt + 1}/{retries}: Error connecting: {e}")
         time.sleep(2)  # Wait before retrying
@@ -188,9 +192,8 @@ def main():
         type=str,
         default="baseline",
         choices=["baseline", "baseline_pd", "disagg"],
-        help=(
-            "Mode: baseline/baseline_pd (saves outputs) or disagg "
-            "(compares outputs)"),
+        help=("Mode: baseline/baseline_pd (saves outputs) or disagg "
+              "(compares outputs)"),
     )
 
     parser.add_argument(
