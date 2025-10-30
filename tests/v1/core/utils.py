@@ -181,8 +181,7 @@ def create_requests(
                     assert seen_hashes[identifier] == position_length, (
                         f"mm_hash '{identifier}' has inconsistent position "
                         f"lengths: previously {seen_hashes[identifier]}, now "
-                        f"{position_length} at request {i}, position {j}"
-                    )
+                        f"{position_length} at request {i}, position {j}")
                 else:
                     seen_hashes[identifier] = position_length
             else:
