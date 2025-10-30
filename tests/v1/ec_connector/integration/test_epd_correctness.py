@@ -266,12 +266,6 @@ def main():
     output_strs = {}
 
     for i, prompt_data in enumerate(test_prompts):
-        print(
-            f"\nRunning prompt {i + 1}/{len(test_prompts)}: {
-                prompt_data['description']
-            }"
-        )
-
         output_str = run_chat_completion(
             base_url=service_url,
             model_name=args.model_name,
@@ -286,7 +280,6 @@ def main():
 
     if args.mode in ("baseline", "baseline_pd"):
         # Baseline mode: Save outputs
-        print(f"\nSaving baseline outputs to {args.baseline_file}")
         try:
             with open(args.baseline_file, "w") as json_file:
                 json.dump(output_strs, json_file, indent=4)
@@ -328,7 +321,6 @@ def main():
                 all_match = False
 
         assert all_match, "Disagg outputs do not match baseline!"
-        print("\n✅ All outputs match! Test PASSED")
 
 
 if __name__ == "__main__":
