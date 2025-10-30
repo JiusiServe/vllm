@@ -163,7 +163,7 @@ def create_requests(
                 for h in mm_hashes_list] == [len(p) for p in mm_positions]
 
         # Since same identifier would imply they are identical encoder output
-        # Verify mm items with identical identifier are having 
+        # Verify mm items with identical identifier are having
         # mm_position.length
         seen_hashes: dict[str, int] = {}
 
