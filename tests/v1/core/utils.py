@@ -163,7 +163,8 @@ def create_requests(
                 for h in mm_hashes_list] == [len(p) for p in mm_positions]
 
         # Since same identifier would imply they are identical encoder output
-        # Verify mm items with identical identifier are having mm_position.length
+        # Verify mm items with identical identifier are having 
+        # mm_position.length
         seen_hashes: dict[str, int] = {}
 
     for i in range(num_requests):
@@ -178,9 +179,10 @@ def create_requests(
                 position_length = position.length
                 if identifier in seen_hashes:
                     assert seen_hashes[identifier] == position_length, (
-                        f"mm_hash '{identifier}' has inconsistent position lengths: "
-                        f"previously {seen_hashes[identifier]}, now {position_length} "
-                        f"at request {i}, position {j}")
+                        f"mm_hash '{identifier}' has inconsistent position "
+                        f"lengths: previously {seen_hashes[identifier]}, now "
+                        f"{position_length} at request {i}, position {j}"
+                    )
                 else:
                     seen_hashes[identifier] = position_length
             else:

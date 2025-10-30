@@ -48,10 +48,16 @@ SAMPLE_PROMPTS_MM: list[dict] = [
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image;base64,{encode_image_base64(image_1)}"
+                            "url": (
+                                "data:image;base64,"
+                                f"{encode_image_base64(image_1)}"
+                            )
                         },
                     },
-                    {"type": "text", "text": "What's in this image?"},
+                    {
+                        "type": "text",
+                        "text": "What's in this image?",
+                    },
                 ],
             }
         ],
@@ -65,16 +71,25 @@ SAMPLE_PROMPTS_MM: list[dict] = [
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image;base64,{encode_image_base64(image_2)}"
+                            "url": (
+                                "data:image;base64,"
+                                f"{encode_image_base64(image_2)}"
+                            )
                         },
                     },
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image;base64,{encode_image_base64(image_1)}"
+                            "url": (
+                                "data:image;base64,"
+                                f"{encode_image_base64(image_1)}"
+                            )
                         },
                     },
-                    {"type": "text", "text": "Describe these 2 images in detail."},
+                    {
+                        "type": "text",
+                        "text": "Describe these 2 images in detail.",
+                    },
                 ],
             }
         ],
@@ -85,12 +100,22 @@ SAMPLE_PROMPTS_MM: list[dict] = [
 # Text-only prompts for mixed testing
 SAMPLE_PROMPTS_TEXT: list[dict] = [
     {
-        "messages": [{"role": "user", "content": "What is the capital of France?"}],
+        "messages": [
+            {
+                "role": "user",
+                "content": "What is the capital of France?",
+            }
+        ],
         "description": "Simple text-only query",
     },
     {
         "messages": [
-            {"role": "user", "content": "Explain quantum computing in simple terms."}
+            {
+                "role": "user",
+                "content": (
+                    "Explain quantum computing in simple terms."
+                ),
+            }
         ],
         "description": "Text-only explanation request",
     },
@@ -180,7 +205,10 @@ def main():
         type=str,
         default="baseline",
         choices=["baseline", "baseline_pd", "disagg"],
-        help="Mode: baseline/baseline_pd (saves outputs) or disagg (compares outputs)",
+        help=(
+            "Mode: baseline/baseline_pd (saves outputs) or disagg "
+            "(compares outputs)"
+        ),
     )
 
     parser.add_argument(
@@ -193,7 +221,9 @@ def main():
     parser.add_argument(
         "--use_mm_prompts",
         action="store_true",
-        help="Use multimodal prompts (default: use text-only for quick testing)",
+        help=(
+            "Use multimodal prompts (default: use text-only for quick testing)"
+        ),
     )
 
     args = parser.parse_args()

@@ -1364,7 +1364,8 @@ def create_requests_with_priority(
                 for h in mm_hashes_list] == [len(p) for p in mm_positions]
 
         # Since same identifier would imply they are identical encoder output
-        # Verify mm items with identical identifier are having mm_position.length
+        # Verify mm items with identical identifier are having
+        # mm_position.length
         seen_hashes: dict[str, int] = {}
 
     for i in range(num_requests):
@@ -1379,9 +1380,10 @@ def create_requests_with_priority(
                 position_length = position.length
                 if identifier in seen_hashes:
                     assert seen_hashes[identifier] == position_length, (
-                        f"mm_hash '{identifier}' has inconsistent position lengths: "
-                        f"previously {seen_hashes[identifier]}, now {position_length} "
-                        f"at request {i}, position {j}")
+                        f"mm_hash '{identifier}' has inconsistent position "
+                        f"lengths: previously {seen_hashes[identifier]}, now "
+                        f"{position_length} at request {i}, position {j}"
+                    )
                 else:
                     seen_hashes[identifier] = position_length
             else:
@@ -2079,7 +2081,8 @@ def _validate_chunked_prefill_settings_for_encoder_decoder(
 # ==============================================================================
 # EPD (Encoder-Prefill-Decode) Encoder-cache-specific tests start
 # NOTE: In E->P->D disagg case, both KV and EC Connector works in P instance
-# Unless specify, the existence of KV Connector should not affect any test results
+# Unless specify, the existence of KV Connector should not affect any test
+# results
 # ==============================================================================
 
 
@@ -2092,7 +2095,9 @@ def _assert_right_encoder_cache_allocated(
     encoder_cache_manager = scheduler.encoder_cache_manager
 
     # Verify encoder cache manager exists
-    assert encoder_cache_manager is not None, "Encoder cache manager should exist"
+    assert encoder_cache_manager is not None, (
+        "Encoder cache manager should exist"
+    )
 
     # Verify number of cache
     if expected_total_allocated is not None:
@@ -2109,8 +2114,10 @@ def _assert_right_encoder_cache_allocated(
             req_hashes = set(mm_hashes)  # unique hashes set
             missed_hashes = req_hashes - cached_hashes
             assert not missed_hashes, (
-                f"Miss hashes in cache for request {req.request_id}: {missed_hashes} "
-                f"Existing encoder cache: {encoder_cache_manager.cached}")
+                f"Miss hashes in cache for request {req.request_id}: "
+                f"{missed_hashes} Existing encoder cache: "
+                f"{encoder_cache_manager.cached}"
+            )
 
 
 def _assert_right_ec_connector_metadata(
@@ -2162,7 +2169,8 @@ def _assert_right_encoder_inputs(
 
     # Number of expected enocder inputs should match number of requests
     if expected_encoder_inputs:
-        assert check_exist and requests is not None  # only support expect input exist
+        # only support expect input exist
+        assert check_exist and requests is not None
         assert len(requests) == len(expected_encoder_inputs)
 
     # Check request (not) exist as expected
@@ -2341,7 +2349,8 @@ def test_ec_connector_cache_miss_computes_locally(use_kv_connector):
 
 @pytest.mark.parametrize("use_kv_connector", [False, True])
 def test_ec_connector_with_partial_cache_hit_multi_round(use_kv_connector):
-    """Test consumer with partial cache hit (local & connector) with 2 requests."""
+    """Test consumer with partial cache hit (local & connector) 
+    with 2 requests."""
     scheduler = create_scheduler(
         model="llava-hf/llava-1.5-7b-hf",
         enable_prefix_caching=True,
@@ -2396,7 +2405,8 @@ def test_ec_connector_with_partial_cache_hit_multi_round(use_kv_connector):
         output,
         mm_features_list=[request1.mm_features[1], request1.mm_features[3]])
 
-    # Should schedule ONLY 1 encoder input (index 0), no repeat for identical items
+    # Should schedule ONLY 1 encoder input (index 0), 
+    # no repeat for identical items
     _assert_right_encoder_inputs(
         output,
         requests=[request1],
@@ -2458,7 +2468,8 @@ def test_ec_connector_with_partial_cache_hit_multi_round(use_kv_connector):
     # Should call update_state_after_alloc for hash1_C, ONLY
     # hash1_A should not be loaded from connector
     # since it's computed in last request & exist in local cache
-    # Order of getting encoder cache should be: local cache -> connector-> compute
+    # Order of getting encoder cache should be: 
+    # local cache -> connector-> compute
     scheduler.ec_connector.update_state_after_alloc.assert_called_with(
         request2, 0)
     scheduler.ec_connector.update_state_after_alloc.assert_called_once()
@@ -2505,8 +2516,10 @@ def test_ec_connector_schedule_multiple_requests(cache_exist,
     for request in requests:
         scheduler.add_request(request)
 
-    # Set up to test different encoder cache exsistence scenario after preemption
-    # Order of getting encoder cache should be: local cache -> connector-> compute
+    # Set up to test different encoder cache exsistence scenario after 
+    # preemption
+    # Order of getting encoder cache should be: 
+    # local cache -> connector-> compute
     scheduler.ec_connector.update_state_after_alloc = Mock(
         wraps=scheduler.ec_connector.update_state_after_alloc)
 
@@ -2839,8 +2852,10 @@ def test_priority_scheduling_ec_connector_preemption_and_resumption(
     scheduler.finish_requests(request_high.request_id,
                               RequestStatus.FINISHED_LENGTH_CAPPED)
 
-    # Set up to test different encoder cache exsistence scenario after preemption
-    # Order of getting encoder cache should be: local cache -> connector-> compute
+    # Set up to test different encoder cache exsistence scenario after 
+    # preemption
+    # Order of getting encoder cache should be: 
+    # local cache -> connector-> compute
     # By default, the cache should still exist in local in this test case
     if cache_exist != "local":
         # Make local encoder cache empty
