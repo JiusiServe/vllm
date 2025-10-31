@@ -38,7 +38,12 @@ from vllm.v1.engine.output_processor import OutputProcessor, RequestOutputCollec
 from vllm.v1.engine.parallel_sampling import ParentRequest
 from vllm.v1.engine.processor import Processor
 from vllm.v1.executor.abstract import Executor
-from vllm.v1.metrics.loggers import EPDStatsLogger, StatLoggerFactory, StatLoggerManager
+from vllm.v1.metrics.loggers import (
+    EPDStatsLogger,
+    StatLoggerFactory,
+    StatLoggerManager,
+    TIMECOUNT_ENABLED,
+)
 from vllm.v1.metrics.prometheus import shutdown_prometheus
 from vllm.v1.metrics.stats import IterationStats
 
@@ -143,8 +148,7 @@ class AsyncLLM(EngineClient):
         self.logger_manager: Optional[StatLoggerManager] = None
         stat_loggers = list(stat_loggers) if stat_loggers else []
         # Add EPDStatsLogger if TIMECOUNT_ENABLED is set
-        timecount_enabled = os.getenv("TIMECOUNT_ENABLED", "0") in ("1", "true", "True")
-        if timecount_enabled and EPDStatsLogger not in stat_loggers:
+        if TIMECOUNT_ENABLED and EPDStatsLogger not in stat_loggers:
             stat_loggers.append(EPDStatsLogger)
         if self.log_stats:
             self.logger_manager = StatLoggerManager(

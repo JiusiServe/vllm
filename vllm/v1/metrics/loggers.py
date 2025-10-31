@@ -881,14 +881,6 @@ class EPDStatsLogger(StatLoggerBase):
             for key in self.EPD_STATS_KEYS
         }
 
-        log_msg = (
-            "Engine %03d: "
-            "Avg e2e time requests: %.3f ms, "
-            "Avg queue time requests: %.3f ms, "
-            "Avg prefill time requests: %.3f ms, "
-            "Avg mean time per output token requests: %.3f ms, "
-            "Avg time to first token: %.3f ms"
-        )
         log_msg = "Engine %03d: " + ", ".join(
             [f"Avg {key.replace('_', ' ')}: %.3f ms" for key in self.EPD_STATS_KEYS]
         )
