@@ -239,14 +239,14 @@ class ECMooncakeStore:
         """
         return key + "_metadata"
 
-    def get(self, key: str, device) -> torch.Tensor | None:
+    def get(self, key: str, device: torch.device | str) -> torch.Tensor | None:
         """Get a single tensor by key.
 
         This is a convenience wrapper around batch_get for single key retrieval.
 
         Args:
             key (str): The key to retrieve
-            device: Target device for the loaded tensor
+            device: Target device for the loaded tensor (torch.device or device string)
 
         Returns:
             Optional[torch.Tensor]: The tensor if found, None otherwise
@@ -254,14 +254,16 @@ class ECMooncakeStore:
         results = self.batch_get([key], device)
         return results[0] if results and len(results) > 0 else None
 
-    def batch_get(self, keys: list[str], device) -> list[torch.Tensor | None]:
+    def batch_get(
+        self, keys: list[str], device: torch.device | str
+    ) -> list[torch.Tensor | None]:
         if self.config.fast_transfer:
             return self._zero_copy_batch_get(keys, device)
 
         return self._batch_get(keys, device)
 
     def _zero_copy_batch_get(
-        self, keys: list[str], device
+        self, keys: list[str], device: torch.device | str
     ) -> list[torch.Tensor | None]:
         if not keys:
             return []
@@ -320,7 +322,9 @@ class ECMooncakeStore:
 
         return results
 
-    def _batch_get(self, keys: list[str], device) -> list[torch.Tensor | None]:
+    def _batch_get(
+        self, keys: list[str], device: torch.device | str
+    ) -> list[torch.Tensor | None]:
         try:
             bytes_list = self.store.get_batch(keys)
         except Exception as e:
