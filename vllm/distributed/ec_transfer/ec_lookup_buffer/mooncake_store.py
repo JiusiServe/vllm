@@ -14,7 +14,6 @@ import os
 import threading
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 import regex as re
@@ -22,7 +21,9 @@ import torch
 
 from vllm.config import VllmConfig
 from vllm.distributed.ec_transfer.utils.tensor_memory_pool import (
-    InsufficientMemoryError, TensorMemoryPool)
+    InsufficientMemoryError,
+    TensorMemoryPool,
+)
 from vllm.distributed.parallel_state import get_world_group
 from vllm.logger import init_logger
 
@@ -67,10 +68,12 @@ class MooncakeStoreConfig:
         return MooncakeStoreConfig(
             local_hostname=config.get("local_hostname"),
             metadata_server=config.get("metadata_server"),
-            global_segment_size=config.get("global_segment_size",
-                                           DEFAULT_GLOBAL_SEGMENT_SIZE),
-            local_buffer_size=config.get("local_buffer_size",
-                                         DEFAULT_LOCAL_BUFFER_SIZE),
+            global_segment_size=config.get(
+                "global_segment_size", DEFAULT_GLOBAL_SEGMENT_SIZE
+            ),
+            local_buffer_size=config.get(
+                "local_buffer_size", DEFAULT_LOCAL_BUFFER_SIZE
+            ),
             protocol=config.get("protocol", "tcp"),
             device_name=config.get("device_name", ""),
             master_server_address=config.get("master_server_address"),
@@ -79,8 +82,9 @@ class MooncakeStoreConfig:
             replica_num=int(config.get("replica_num", 1)),
             fast_transfer=bool(config.get("fast_transfer", True)),
             fast_transfer_buffer_size=int(
-                float(config.get("fast_transfer_buffer_size", 1)) *
-                DEFAULT_TENSOR_POOL_SIZE),
+                float(config.get("fast_transfer_buffer_size", 1))
+                * DEFAULT_TENSOR_POOL_SIZE
+            ),
         )
 
 
@@ -109,49 +113,52 @@ class ECMooncakeStore:
 
     def __init__(self, vllm_config: "VllmConfig"):
         try:
-            from mooncake.store import (MooncakeDistributedStore,
-                                        ReplicateConfig)
+            from mooncake.store import MooncakeDistributedStore, ReplicateConfig
         except ImportError as e:
             raise ImportError(
                 "Please install mooncake by following the instructions at "
                 "https://github.com/kvcache-ai/Mooncake/blob/main/doc/en/build.md "  # noqa: E501
-                "to run vLLM with MooncakeConnector.") from e
+                "to run vLLM with MooncakeConnector."
+            ) from e
 
         try:
             if vllm_config.ec_transfer_config is None:
-                raise ValueError(
-                    "ec_transfer_config must be set for ECConnectorBase")
+                raise ValueError("ec_transfer_config must be set for ECConnectorBase")
 
             self.store = MooncakeDistributedStore()
             self.config = MooncakeStoreConfig.from_file(
-                vllm_config.ec_transfer_config.
-                ec_connector_extra_config["ec_mooncake_config_file_path"])
+                vllm_config.ec_transfer_config.ec_connector_extra_config[
+                    "ec_mooncake_config_file_path"
+                ]
+            )
             logger.debug("Mooncake Configuration loaded successfully.")
 
             # Check if storage_root_dir exists and set environment variable
-            if (self.config.storage_root_dir is not None
-                    and self.config.storage_root_dir != ""):
-                os.environ[
-                    "MOONCAKE_STORAGE_ROOT_DIR"] = self.config.storage_root_dir
-                logger.info("Set MOONCAKE_STORAGE_ROOT_DIR to: %s",
-                            self.config.storage_root_dir)
+            if (
+                self.config.storage_root_dir is not None
+                and self.config.storage_root_dir != ""
+            ):
+                os.environ["MOONCAKE_STORAGE_ROOT_DIR"] = self.config.storage_root_dir
+                logger.info(
+                    "Set MOONCAKE_STORAGE_ROOT_DIR to: %s", self.config.storage_root_dir
+                )
 
             logger.info("Setting up Mooncake store with parameters:")
             logger.info("  local_hostname: %s", self.config.local_hostname)
             logger.info("  metadata_server: %s", self.config.metadata_server)
-            logger.info("  global_segment_size: %s",
-                        self.config.global_segment_size)
-            logger.info("  local_buffer_size: %s",
-                        self.config.local_buffer_size)
+            logger.info("  global_segment_size: %s", self.config.global_segment_size)
+            logger.info("  local_buffer_size: %s", self.config.local_buffer_size)
             logger.info("  protocol: %s", self.config.protocol)
             logger.info("  device_name: %s", self.config.device_name)
-            logger.info("  master_server_address: %s",
-                        self.config.master_server_address)
+            logger.info(
+                "  master_server_address: %s", self.config.master_server_address
+            )
             logger.info("  transfer_timeout: %s", self.config.transfer_timeout)
             logger.info("  replica_num: %s", self.config.replica_num)
             logger.info("  fast_transfer: %s", self.config.fast_transfer)
-            logger.info("  fast_transfer_buffer_size: %s",
-                        self.config.fast_transfer_buffer_size)
+            logger.info(
+                "  fast_transfer_buffer_size: %s", self.config.fast_transfer_buffer_size
+            )
 
             self.store.setup(
                 self.config.local_hostname,
@@ -167,8 +174,7 @@ class ECMooncakeStore:
             logger.error("Configuration loading failed: %s", e)
             raise
         except Exception as exc:
-            logger.error(
-                "An error occurred while loading the configuration: %s", exc)
+            logger.error("An error occurred while loading the configuration: %s", exc)
             raise
 
         # Initialize ReplicateConfig
@@ -180,9 +186,11 @@ class ECMooncakeStore:
         # Fast transfer init (Use zero-copy methods of mooncake)
         if self.config.fast_transfer:
             self.tensor_pool = TensorMemoryPool(
-                max_block_size=self.config.fast_transfer_buffer_size)
-            self.store.register_buffer(self.tensor_pool.base_address,
-                                       self.config.fast_transfer_buffer_size)
+                max_block_size=self.config.fast_transfer_buffer_size
+            )
+            self.store.register_buffer(
+                self.tensor_pool.base_address, self.config.fast_transfer_buffer_size
+            )
             self.fifo_pool_queue: deque[ECMooncakeTensorPoolMetadata] = deque()
 
         # Put async init
@@ -190,14 +198,16 @@ class ECMooncakeStore:
         self.put_queue: set[str] = set()
         self.put_queue_cv = asyncio.Condition()
         self.put_loop = asyncio.new_event_loop()
-        self.put_thread = threading.Thread(target=self.put_loop.run_forever,
-                                           daemon=True)
+        self.put_thread = threading.Thread(
+            target=self.put_loop.run_forever, daemon=True
+        )
         self.put_thread.start()
 
     def close(self):
         if self.config.fast_transfer:
-            self.store.unregister_buffer(self.tensor_pool.base_address,
-                                         self.config.fast_transfer_buffer_size)
+            self.store.unregister_buffer(
+                self.tensor_pool.base_address, self.config.fast_transfer_buffer_size
+            )
             self.tensor_pool.cleanup()
 
         self.put_loop.call_soon_threadsafe(self.put_loop.stop)
@@ -214,14 +224,14 @@ class ECMooncakeStore:
 
     def metadata_key(self, key: str) -> str:
         """Generate metadata key for a given key.
-        
+
         Args:
             key (str): The original key (typically an mm_hash which provides
                       low collision probability)
-                      
+
         Returns:
             str: Metadata key with "_metadata" suffix
-            
+
         Note:
             Keys are generated using mm_hash of databytes, which provides
             very low collision probability. The metadata key is derived by
@@ -229,30 +239,30 @@ class ECMooncakeStore:
         """
         return key + "_metadata"
 
-    def get(self, key: str, device) -> Optional[torch.Tensor]:
+    def get(self, key: str, device) -> torch.Tensor | None:
         """Get a single tensor by key.
-        
+
         This is a convenience wrapper around batch_get for single key retrieval.
-        
+
         Args:
             key (str): The key to retrieve
             device: Target device for the loaded tensor
-            
+
         Returns:
             Optional[torch.Tensor]: The tensor if found, None otherwise
         """
         results = self.batch_get([key], device)
         return results[0] if results else None
 
-    def batch_get(self, keys: list[str],
-                  device) -> list[Optional[torch.Tensor]]:
+    def batch_get(self, keys: list[str], device) -> list[torch.Tensor | None]:
         if self.config.fast_transfer:
             return self._zero_copy_batch_get(keys, device)
 
         return self._batch_get(keys, device)
 
-    def _zero_copy_batch_get(self, keys: list[str],
-                             device) -> list[Optional[torch.Tensor]]:
+    def _zero_copy_batch_get(
+        self, keys: list[str], device
+    ) -> list[torch.Tensor | None]:
         if not keys:
             return []
 
@@ -295,58 +305,55 @@ class ECMooncakeStore:
         results = [None] * len(keys)
         try:
             valid_keys = [keys[id] for id in exist_ids]
-            read_bytes = self.store.batch_get_into(valid_keys, buffer_addrs,
-                                                   sizes)
+            read_bytes = self.store.batch_get_into(valid_keys, buffer_addrs, sizes)
         except Exception as e:
             logger.error("batch_get_into failed: %s", str(e))
 
         # NOTE: should I delay free buffer
-        for id, addr, dtype, shape, read_byte in zip(exist_ids, buffer_addrs,
-                                                     buffer_dtypes,
-                                                     buffer_shapes,
-                                                     read_bytes):
+        for id, addr, dtype, shape, read_byte in zip(
+            exist_ids, buffer_addrs, buffer_dtypes, buffer_shapes, read_bytes
+        ):
             if read_byte > 0:
-                results[id] = self.tensor_pool.load_tensor(
-                    addr, dtype, shape, device)
+                results[id] = self.tensor_pool.load_tensor(addr, dtype, shape, device)
 
             self.tensor_pool.free(addr)
 
         return results
 
-    def _batch_get(self, keys: list[str],
-                   device) -> list[Optional[torch.Tensor]]:
+    def _batch_get(self, keys: list[str], device) -> list[torch.Tensor | None]:
         try:
             bytes_list = self.store.get_batch(keys)
         except Exception as e:
             logger.error("batch_get_into failed: %s", str(e))
             return [None] * len(keys)
 
-        tensors: list[Optional[torch.Tensor]] = []
+        tensors: list[torch.Tensor | None] = []
         for bytes_data in bytes_list:
             if not bytes_data:
                 tensors.append(None)
                 continue
 
             len_meta = int.from_bytes(bytes_data[:4], "big")
-            meta = json.loads(bytes_data[4:4 + len_meta].decode("utf-8"))
-            data = bytes_data[4 + len_meta:]
-            arr_loaded = np.frombuffer(
-                data, dtype=meta["serialized_dtype"]).reshape(meta["shape"])
+            meta = json.loads(bytes_data[4 : 4 + len_meta].decode("utf-8"))
+            data = bytes_data[4 + len_meta :]
+            arr_loaded = np.frombuffer(data, dtype=meta["serialized_dtype"]).reshape(
+                meta["shape"]
+            )
             tensor_loaded = torch.from_numpy(arr_loaded)
 
             if meta["original_dtype"] != meta["serialized_dtype"]:
                 tensor_loaded = tensor_loaded.view(
-                    getattr(torch, meta["original_dtype"].split(".")
-                            [-1]))  # e.g., 'torch.bfloat16' -> torch.bfloat16
+                    getattr(torch, meta["original_dtype"].split(".")[-1])
+                )  # e.g., 'torch.bfloat16' -> torch.bfloat16
             tensors.append(tensor_loaded.to(device))
 
         return tensors
 
     def put(self, key: str, tensor: torch.Tensor) -> None:
         """Put a single tensor with the given key.
-        
+
         This is a convenience wrapper around batch_put for single key storage.
-        
+
         Args:
             key (str): The key to store the tensor under
             tensor (torch.Tensor): The tensor to store
@@ -354,8 +361,9 @@ class ECMooncakeStore:
         self.batch_put([key], [tensor])
 
     def wait_for_put(self):
-        future = asyncio.run_coroutine_threadsafe(self._wait_for_put_async(),
-                                                  self.put_loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self._wait_for_put_async(), self.put_loop
+        )
         future.result()  # wait until complete
 
     async def _wait_for_put_async(self):
@@ -364,11 +372,13 @@ class ECMooncakeStore:
                 await self.put_queue_cv.wait()
 
     def batch_put(self, keys: list[str], tensors: list[torch.Tensor]) -> None:
-        self.put_loop.call_soon_threadsafe(lambda: self.put_loop.create_task(
-            self._batch_put_async(keys, tensors)))
+        self.put_loop.call_soon_threadsafe(
+            lambda: self.put_loop.create_task(self._batch_put_async(keys, tensors))
+        )
 
-    async def _batch_put_async(self, keys: list[str],
-                               tensors: list[torch.Tensor]) -> None:
+    async def _batch_put_async(
+        self, keys: list[str], tensors: list[torch.Tensor]
+    ) -> None:
         device = get_world_group().local_rank
         torch.npu.set_device(device)
         async with self.put_queue_cv:
@@ -385,8 +395,9 @@ class ECMooncakeStore:
                 if not self.put_queue:
                     self.put_queue_cv.notify()
 
-    async def _zero_copy_batch_put(self, keys: list[str],
-                                   tensors: list[torch.Tensor]) -> None:
+    async def _zero_copy_batch_put(
+        self, keys: list[str], tensors: list[torch.Tensor]
+    ) -> None:
         if not keys:
             return
 
@@ -397,8 +408,7 @@ class ECMooncakeStore:
         buffer_sizes = []
         for key, tensor in zip(keys, tensors):
             buffer_addr = self._pool_store_tensor(tensor)
-            self.fifo_pool_queue.append(
-                ECMooncakeTensorPoolMetadata(key, buffer_addr))
+            self.fifo_pool_queue.append(ECMooncakeTensorPoolMetadata(key, buffer_addr))
             buffer_size = tensor.numel() * tensor.element_size()
             buffer_addrs.append(buffer_addr)
             buffer_sizes.append(buffer_size)
@@ -412,14 +422,14 @@ class ECMooncakeStore:
 
         try:
             await asyncio.wait_for(
-                asyncio.to_thread(self.store.put_batch, meta_keys, meta_values,
-                                  self.replica_config),
+                asyncio.to_thread(
+                    self.store.put_batch, meta_keys, meta_values, self.replica_config
+                ),
                 timeout=self.config.transfer_timeout,
             )
         except Exception as e:
             logger.error(
-                "Failed to put metadata for keys %s "
-                "using put_batch with error %s",
+                "Failed to put metadata for keys %s using put_batch with error %s",
                 ",".join(keys),
                 str(e),
             )
@@ -443,8 +453,7 @@ class ECMooncakeStore:
                 str(e),
             )
 
-    async def _batch_put(self, keys: list[str],
-                         tensors: list[torch.Tensor]) -> None:
+    async def _batch_put(self, keys: list[str], tensors: list[torch.Tensor]) -> None:
         bytes_list = []
         for tensor in tensors:
             if tensor.get_device() != -1:
@@ -466,14 +475,14 @@ class ECMooncakeStore:
                 "serialized_dtype": serialized_dtype_str,
             }
             meta_bytes = json.dumps(meta).encode("utf-8")
-            len_bytes = len(meta_bytes).to_bytes(
-                4, "big")  # Prefix metadata length
+            len_bytes = len(meta_bytes).to_bytes(4, "big")  # Prefix metadata length
             bytes_list.append(len_bytes + meta_bytes + data_bytes)
 
         try:
             await asyncio.wait_for(
-                asyncio.to_thread(self.store.put_batch, keys, bytes_list,
-                                  self.replica_config),
+                asyncio.to_thread(
+                    self.store.put_batch, keys, bytes_list, self.replica_config
+                ),
                 timeout=self.config.transfer_timeout,
             )
         except Exception as e:
@@ -497,7 +506,10 @@ class ECMooncakeStore:
             logger.warning(
                 "Unexpected number of keys removed during eviction: %d "
                 "(expected <= 2). This may indicate duplicate entries for "
-                "key: %s", count, evicted_buffer.key)
+                "key: %s",
+                count,
+                evicted_buffer.key,
+            )
 
     def _pool_allocate(self, size: int) -> int:
         while True:

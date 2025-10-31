@@ -5,9 +5,11 @@ from typing import TYPE_CHECKING
 
 from vllm.config import VllmConfig
 from vllm.distributed.ec_transfer.ec_connector.base import (
-    ECConnectorBase, ECConnectorMetadata, ECConnectorRole)
-from vllm.distributed.ec_transfer.ec_lookup_buffer.mooncake_store import (
-    ECMooncakeStore)
+    ECConnectorBase,
+    ECConnectorMetadata,
+    ECConnectorRole,
+)
+from vllm.distributed.ec_transfer.ec_lookup_buffer.mooncake_store import ECMooncakeStore
 from vllm.logger import init_logger
 from vllm.v1.core.sched.output import SchedulerOutput
 
@@ -39,7 +41,6 @@ class ECMooncakeStorageConnectorMetadata(ECConnectorMetadata):
 
 
 class ECMooncakeStorageConnector(ECConnectorBase):
-
     def __init__(self, vllm_config: "VllmConfig", role: ECConnectorRole):
         super().__init__(vllm_config=vllm_config, role=role)
         # mm_hash -> num_tokens
@@ -66,14 +67,17 @@ class ECMooncakeStorageConnector(ECConnectorBase):
         assert isinstance(metadata, ECMooncakeStorageConnectorMetadata)
         assert encoder_cache is not None
         if not metadata:
-            logger.warning((
-                "In connector.start_load_caches, ",
-                "but the connector metadata is None",
-            ))
+            logger.warning(
+                (
+                    "In connector.start_load_caches, ",
+                    "but the connector metadata is None",
+                )
+            )
             return
 
         mm_hashes = [
-            mm_data.mm_hash for mm_data in metadata.mm_datas
+            mm_data.mm_hash
+            for mm_data in metadata.mm_datas
             if mm_data.mm_hash not in encoder_cache
         ]
         device = self._vllm_config.device_config.device

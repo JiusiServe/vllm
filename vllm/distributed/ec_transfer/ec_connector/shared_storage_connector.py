@@ -8,7 +8,10 @@ import safetensors
 
 from vllm.config import VllmConfig
 from vllm.distributed.ec_transfer.ec_connector.base import (
-    ECConnectorBase, ECConnectorMetadata, ECConnectorRole)
+    ECConnectorBase,
+    ECConnectorMetadata,
+    ECConnectorRole,
+)
 from vllm.logger import init_logger
 from vllm.v1.core.sched.output import SchedulerOutput
 
@@ -50,12 +53,12 @@ class ECSharedStorageConnector(ECConnectorBase):
         transfer_config = vllm_config.ec_transfer_config
         if transfer_config is not None:
             self._storage_path = transfer_config.get_from_extra_config(
-                "shared_storage_path", "/tmp")
+                "shared_storage_path", "/tmp"
+            )
             logger.debug(transfer_config)
             logger.debug("Shared storage path is %s", self._storage_path)
         else:
-            raise ValueError(
-                "ec_transfer_config must be set for ECConnectorBase")
+            raise ValueError("ec_transfer_config must be set for ECConnectorBase")
 
     def start_load_caches(self, encoder_cache, **kwargs) -> None:
         """
@@ -77,10 +80,12 @@ class ECSharedStorageConnector(ECConnectorBase):
         assert isinstance(metadata, ECSharedStorageConnectorMetadata)
         assert encoder_cache is not None
         if metadata is None:
-            logger.warning((
-                "In connector.start_load_caches, ",
-                "but the connector metadata is None",
-            ))
+            logger.warning(
+                (
+                    "In connector.start_load_caches, ",
+                    "but the connector metadata is None",
+                )
+            )
             return
         # Load the EC for each mm data
         for mm_data in metadata.mm_datas:
@@ -88,10 +93,10 @@ class ECSharedStorageConnector(ECConnectorBase):
                 continue
             filename = self._generate_filename_debug(mm_data.mm_hash)
             ec_cache = safetensors.torch.load_file(filename)["ec_cache"].to(
-                self._vllm_config.device_config.device)
+                self._vllm_config.device_config.device
+            )
             encoder_cache[mm_data.mm_hash] = ec_cache
-            logger.debug("Success load encoder cache for hash %s",
-                         mm_data.mm_hash)
+            logger.debug("Success load encoder cache for hash %s", mm_data.mm_hash)
 
     def save_caches(self, encoder_cache, mm_hash, **kwargs) -> None:
         """
@@ -175,9 +180,9 @@ class ECSharedStorageConnector(ECConnectorBase):
         return os.path.exists(filename)
 
     def _generate_foldername_debug(
-            self,
-            mm_hash: str,
-            create_folder: bool = True,  # <- now defaults to True
+        self,
+        mm_hash: str,
+        create_folder: bool = True,  # <- now defaults to True
     ) -> str:
         """
         Return the folder in which the cache for this mm_hash lives.
@@ -196,6 +201,5 @@ class ECSharedStorageConnector(ECConnectorBase):
         `_generate_foldername_debug` is called with its default
         (`create_folder=True`).
         """
-        foldername = self._generate_foldername_debug(
-            mm_hash)  # <- folder auto-created
+        foldername = self._generate_foldername_debug(mm_hash)  # <- folder auto-created
         return os.path.join(foldername, "encoder_cache.safetensors")
