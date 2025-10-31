@@ -69,6 +69,9 @@ class TensorMemoryPool:
             than min_block_size
     """
 
+    # Maximum depth for buddy merge operations to prevent infinite loops
+    MAX_MERGE_DEPTH = 30
+
     def __init__(self, max_block_size: int, min_block_size: int = 512):
         if max_block_size <= 0 or min_block_size <= 0:
             raise ValueError("Block sizes must be positive")
@@ -165,10 +168,9 @@ class TensorMemoryPool:
         self._merge_buddies(block)
 
     def _merge_buddies(self, block: MemoryBlock):
-        MAX_MERGE_DEPTH = 30
         depth = 0
 
-        while depth < MAX_MERGE_DEPTH:
+        while depth < self.MAX_MERGE_DEPTH:
             buddy_offset = (
                 block.size
                 if (block.addr - self.base_address) % (2 * block.size) == 0

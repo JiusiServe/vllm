@@ -252,7 +252,7 @@ class ECMooncakeStore:
             Optional[torch.Tensor]: The tensor if found, None otherwise
         """
         results = self.batch_get([key], device)
-        return results[0] if results else None
+        return results[0] if results and len(results) > 0 else None
 
     def batch_get(self, keys: list[str], device) -> list[torch.Tensor | None]:
         if self.config.fast_transfer:
