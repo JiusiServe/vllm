@@ -41,8 +41,10 @@ class TensorMemoryPool:
     - Automatically cleans up memory on destruction
 
     Attributes:
-        max_block_size (int): Maximum block size (rounded to nearest power of two)
-        min_block_size (int): Minimum block size (rounded to nearest power of two)
+        max_block_size (int): Maximum block size (rounded to nearest power of
+                                          two)
+        min_block_size (int): Minimum block size (rounded to nearest power of
+                                          two)
         free_lists (dict): Dictionary of free memory blocks by size
         allocated_blocks (dict): Dictionary of currently allocated blocks
         base_tensor (torch.Tensor): Base pinned memory tensor
