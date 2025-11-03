@@ -269,7 +269,7 @@ class ECMooncakeStore:
             buffer_shapes.append(buffer_shape)
 
         # Fill None first and
-        # replace valid keys with corresponding buffers
+        # Replace valid keys with corresponding buffers.
         results = [None] * len(keys)
         try:
             valid_keys = [keys[id] for id in exist_ids]
