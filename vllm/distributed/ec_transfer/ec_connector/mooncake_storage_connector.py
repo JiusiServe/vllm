@@ -65,10 +65,10 @@ class ECMooncakeStorageConnector(ECConnectorBase):
         metadata: ECConnectorMetadata = self._get_connector_metadata()
         assert isinstance(metadata, ECMooncakeStorageConnectorMetadata)
         assert encoder_cache is not None
-        if not metadata:
+        if not metadata.mm_datas:
             logger.warning((
                 "In connector.start_load_caches, ",
-                "but the connector metadata is None",
+                "but the connector metadata has no mm_datas",
             ))
             return
 
