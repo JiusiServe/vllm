@@ -25,51 +25,50 @@ class InsufficientMemoryError(ValueError):
     pass
 
 
-"""A memory pool for managing pinned host memory allocations for tensors.
-
-This class implements a buddy allocation system to efficiently manage pinned
-host memory for tensor storage. It supports allocation, deallocation, and
-tensor storage/retrieval operations.
-
-Key Features:
-- Uses power-of-two block sizes for efficient buddy allocation
-- Supports splitting and merging of memory blocks
-- Provides methods to store HBM tensors in pinned host memory
-- Allows loading tensors from pinned memory back to device
-- Automatically cleans up memory on destruction
-
-Attributes:
-    max_block_size (int): Maximum block size (rounded to nearest power of two)
-    min_block_size (int): Minimum block size (rounded to nearest power of two)
-    free_lists (dict): Dictionary of free memory blocks by size
-    allocated_blocks (dict): Dictionary of currently allocated blocks
-    base_tensor (torch.Tensor): Base pinned memory tensor
-    base_address (int): Base memory address of the pinned memory region
-
-Example:
-    >>> pool = TensorMemoryPool(max_block_size=1024*1024)
-    >>> tensor = torch.randn(100, device='cuda')
-    >>> addr = pool.store_tensor(tensor)
-    >>> loaded_tensor = pool.load_tensor(addr, tensor.dtype,
-    ...                                  tensor.shape, 'cuda')
-    >>> pool.free(addr)
-"""
-
 
 class TensorMemoryPool:
-    """Initializes the memory pool with given size constraints.
+    """A memory pool for managing pinned host memory allocations for tensors.
 
-    Args:
-        max_block_size (int): Maximum size of memory blocks to manage
-        min_block_size (int, optional): Minimum size of memory blocks
-            to manage. Defaults to 512.
+    This class implements a buddy allocation system to efficiently manage pinned
+    host memory for tensor storage. It supports allocation, deallocation, and
+    tensor storage/retrieval operations.
 
-    Raises:
-        ValueError: If block sizes are invalid or max_block_size is less
-            than min_block_size
+    Key Features:
+    - Uses power-of-two block sizes for efficient buddy allocation
+    - Supports splitting and merging of memory blocks
+    - Provides methods to store HBM tensors in pinned host memory
+    - Allows loading tensors from pinned memory back to device
+    - Automatically cleans up memory on destruction
+
+    Attributes:
+        max_block_size (int): Maximum block size (rounded to nearest power of two)
+        min_block_size (int): Minimum block size (rounded to nearest power of two)
+        free_lists (dict): Dictionary of free memory blocks by size
+        allocated_blocks (dict): Dictionary of currently allocated blocks
+        base_tensor (torch.Tensor): Base pinned memory tensor
+        base_address (int): Base memory address of the pinned memory region
+
+    Example:
+        >>> pool = TensorMemoryPool(max_block_size=1024*1024)
+        >>> tensor = torch.randn(100, device='cuda')
+        >>> addr = pool.store_tensor(tensor)
+        >>> loaded_tensor = pool.load_tensor(addr, tensor.dtype,
+        ...                                  tensor.shape, 'cuda')
+        >>> pool.free(addr)
     """
 
     def __init__(self, max_block_size: int, min_block_size: int = 512):
+        """Initializes the memory pool with given size constraints.
+
+        Args:
+            max_block_size (int): Maximum size of memory blocks to manage
+            min_block_size (int, optional): Minimum size of memory blocks
+                to manage. Defaults to 512.
+
+        Raises:
+            ValueError: If block sizes are invalid or max_block_size is less
+                than min_block_size
+        """
         if max_block_size <= 0 or min_block_size <= 0:
             raise ValueError("Block sizes must be positive")
         if max_block_size < min_block_size:
