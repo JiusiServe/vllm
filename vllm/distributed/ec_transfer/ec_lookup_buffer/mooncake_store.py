@@ -63,21 +63,21 @@ class MooncakeStoreConfig:
     def from_config(config) -> "MooncakeStoreConfig":
         """Load the mooncake store config"""
         return MooncakeStoreConfig(
-            local_hostname=getattr(self.config, "local_hostname", "localhost"),
-            metadata_server=getattr(self.config, "metadata_server", ""),
-            global_segment_size=getattr(self.config, "global_segment_size",
+            local_hostname=config.get("local_hostname", "localhost"),
+            metadata_server=config.get("metadata_server", ""),
+            global_segment_size=config.get("global_segment_size",
                                         DEFAULT_GLOBAL_SEGMENT_SIZE),
-            local_buffer_size=getattr(self.config, "local_buffer_size",
+            local_buffer_size=config.get("local_buffer_size",
                                         DEFAULT_LOCAL_BUFFER_SIZE),
-            protocol=getattr(self.config, "protocol", "tcp"),
-            device_name=getattr(self.config, "device_name", ""),
-            master_server_address=getattr(self.config, "master_server_address", ""),
-            storage_root_dir=getattr(self.config, "storage_root_dir", ""),
-            transfer_timeout=int(getattr(self.config, "transfer_timeout", 1)),
-            replica_num=int(getattr(self.config, "replica_num", 1)),
-            fast_transfer=bool(getattr(self.config, "fast_transfer", True)),
+            protocol=config.get("protocol", "tcp"),
+            device_name=config.get("device_name", ""),
+            master_server_address=config.get("master_server_address", ""),
+            storage_root_dir=config.get("storage_root_dir", ""),
+            transfer_timeout=int(config.get("transfer_timeout", 1)),
+            replica_num=int(config.get("replica_num", 1)),
+            fast_transfer=bool(config.get("fast_transfer", True)),
             fast_transfer_buffer_size=int(
-                float(getattr(self.config,"fast_transfer_buffer_size", 1)) *
+                float(config.get("fast_transfer_buffer_size", 1)) *
                 DEFAULT_TENSOR_POOL_SIZE),
         )
 
