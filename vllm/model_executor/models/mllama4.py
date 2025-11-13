@@ -65,13 +65,14 @@ from vllm.sequence import IntermediateTensors
 from vllm.utils.tensor_schema import TensorSchema, TensorShape
 
 from .interfaces import (
+    MixtureOfExperts,
     MultiModalEmbeddings,
     SupportsEagle3,
     SupportsMultiModal,
     SupportsPP,
 )
 from .llama4 import Llama4ForCausalLM
-from .utils import AutoWeightsLoader, flatten_bn, maybe_prefix
+from .utils import AutoWeightsLoader, maybe_prefix
 from .vision import run_dp_sharded_vision_model
 
 
@@ -86,7 +87,7 @@ class Llama4ImagePatchInputs(TensorSchema):
 
     type: Literal["pixel_values"] = "pixel_values"
 
-    flat_data: Annotated[
+    pixel_values: Annotated[
         torch.Tensor,
         TensorShape("total_num_chunks", "num_channels", "image_size", "image_size"),
     ]
@@ -96,7 +97,7 @@ class Llama4ImagePatchInputs(TensorSchema):
     The number of total patches for each image in the batch.
     
     This is used to split the embeddings which has the first two dimensions
-    flattened just like `flat_data`.
+    flattened just like `pixel_values`.
     """
 
     aspect_ratios: Annotated[torch.Tensor, TensorShape("batch_size", 2)]
@@ -723,8 +724,10 @@ class Mllama4DummyInputsBuilder(BaseDummyInputsBuilder[Mllama4ProcessingInfo]):
     dummy_inputs=Mllama4DummyInputsBuilder,
 )
 class Llama4ForConditionalGeneration(
-    nn.Module, SupportsMultiModal, SupportsPP, SupportsEagle3
+    nn.Module, SupportsMultiModal, SupportsPP, MixtureOfExperts, SupportsEagle3
 ):
+    merge_by_field_config = True
+
     packed_modules_mapping = {
         "qkv_proj": ["q_proj", "k_proj", "v_proj"],
         "gate_up_proj": ["gate_proj", "up_proj"],
@@ -774,6 +777,17 @@ class Llama4ForConditionalGeneration(
             self.language_model.make_empty_intermediate_tensors
         )
 
+        # Set MoE hyperparameters
+        self.num_expert_groups = 1
+        self.num_logical_experts = self.language_model.num_logical_experts
+        self.num_physical_experts = self.language_model.num_physical_experts
+        self.num_local_physical_experts = self.language_model.num_local_physical_experts
+        self.num_routed_experts = self.language_model.num_routed_experts
+        self.num_shared_experts = self.language_model.num_shared_experts
+        self.num_redundant_experts = self.language_model.num_redundant_experts
+        self.moe_layers = self.language_model.moe_layers
+        self.num_moe_layers = len(self.moe_layers)
+
     def set_aux_hidden_state_layers(self, layers: tuple[int, ...]) -> None:
         """Set which layers should output auxiliary hidden states for EAGLE3."""
         # Delegate to underlying language model (Llama4ForCausalLM)
@@ -790,6 +804,24 @@ class Llama4ForConditionalGeneration(
         assert hasattr(self.language_model, "get_eagle3_aux_hidden_state_layers")
         return self.language_model.get_eagle3_aux_hidden_state_layers()
 
+    def set_eplb_state(
+        self,
+        expert_load_view: torch.Tensor,
+        logical_to_physical_map: torch.Tensor,
+        logical_replica_count: torch.Tensor,
+    ):
+        self.language_model.set_eplb_state(
+            expert_load_view, logical_to_physical_map, logical_replica_count
+        )
+        self.expert_weights = self.language_model.expert_weights
+
+    def update_physical_experts_metadata(
+        self, num_physical_experts: int, num_local_physical_experts: int
+    ):
+        self.language_model.update_physical_experts_metadata(
+            num_physical_experts, num_local_physical_experts
+        )
+
     def _parse_and_validate_image_input(
         self, **kwargs: object
     ) -> Llama4ImagePatchInputs | None:
@@ -798,17 +830,12 @@ class Llama4ForConditionalGeneration(
         if pixel_values is None:
             return None
 
-        # num_images x num_chunks, channel, image_size, image_size
-        # TODO: confirm handling for variable lengths
-        flat_pixel_values = flatten_bn(pixel_values, concat=True)
-        patches_per_image = flatten_bn(kwargs.pop("patches_per_image"))
+        patches_per_image = kwargs.pop("patches_per_image")
         aspect_ratios = kwargs.pop("aspect_ratios")
-        if aspect_ratios.ndim == 3:
-            aspect_ratios = aspect_ratios.squeeze(1)
 
         return Llama4ImagePatchInputs(
             type="pixel_values",
-            flat_data=flat_pixel_values,
+            pixel_values=pixel_values,
             patches_per_image=patches_per_image,
             aspect_ratios=aspect_ratios,
         )
@@ -817,16 +844,16 @@ class Llama4ForConditionalGeneration(
         self, image_input: Llama4ImagePatchInputs
     ) -> MultiModalEmbeddings:
         assert self.vision_model and self.multi_modal_projector
-        flat_data = image_input["flat_data"]
+        pixel_values = image_input["pixel_values"]
         patches_per_image = image_input["patches_per_image"].tolist()
 
         # shard image input
         if self.use_data_parallel:
             vision_embeddings_flat = run_dp_sharded_vision_model(
-                flat_data, self.vision_model
+                pixel_values, self.vision_model
             )
         else:
-            vision_embeddings_flat = self.vision_model(flat_data)
+            vision_embeddings_flat = self.vision_model(pixel_values)
 
         vision_embeddings_flat = self.multi_modal_projector(vision_embeddings_flat)
 
@@ -838,7 +865,7 @@ class Llama4ForConditionalGeneration(
     def get_language_model(self) -> torch.nn.Module:
         return self.language_model
 
-    def get_multimodal_embeddings(self, **kwargs) -> MultiModalEmbeddings:
+    def embed_multimodal(self, **kwargs) -> MultiModalEmbeddings:
         image_input = self._parse_and_validate_image_input(**kwargs)
         if image_input is None:
             return []
